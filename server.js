@@ -83,13 +83,13 @@ difference() {
             try {
                 const fileBuffer = fs.readFileSync(stlPath);
                 const { error: uploadError } = await supabase.storage
-                    .from('makers_pro_stls')
+                    .from(process.env.STORAGE_BUCKET_NAME)
                     .upload(`previews/${id}.stl`, fileBuffer);
 
                 if (uploadError) throw uploadError;
 
                 const { data } = supabase.storage
-                    .from('makers_pro_stls')
+                    .from(process.env.STORAGE_BUCKET_NAME)
                     .getPublicUrl(`previews/${id}.stl`);
 
                 res.json({ url: data.publicUrl });

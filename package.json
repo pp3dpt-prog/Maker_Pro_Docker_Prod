@@ -1,5 +1,5 @@
 {
-  "name": "maker_pro_docker",
+  "name": "makers_pro_stl_prod",
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
