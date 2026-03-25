@@ -47,27 +47,27 @@ app.post('/gerar-stl-pro', async (req, res) => {
     const codigoFinal = `${blocoVariaveis}\n${scad_template}`;
 
     try {
-        fs.writeFileSync(scadPath, codigoFinal);
-        const comando = `openscad -o "${stlPath}" "${scadPath}"`;
-        
-        exec(comando, async (error, stdout, stderr) => {
-            if (error) return res.status(500).json({ error: "Erro OpenSCAD: " + stderr });
+        const bucket = process.env.STORAGE_BUCKET_NAME || 'makers_pro_stl_prod';
+        const filePath = `previews/${id}.stl`;
 
-            try {
-                const fileBuffer = fs.readFileSync(stlPath);
-                await supabase.storage.from(process.env.STORAGE_BUCKET_NAME).upload(`previews/${id}.stl`, fileBuffer);
-                const { data } = supabase.storage.from(process.env.STORAGE_BUCKET_NAME).getPublicUrl(`previews/${id}.stl`);
-                
-                res.json({ url: data.publicUrl });
-            } catch (upErr) {
-                res.status(500).json({ error: "Erro no upload" });
-            } finally {
-                if (fs.existsSync(scadPath)) fs.unlinkSync(scadPath);
-                if (fs.existsSync(stlPath)) fs.unlinkSync(stlPath);
-            }
-        });
-    } catch (err) {
-        res.status(500).json({ error: "Erro interno" });
+        // 1. Em vez de getPublicUrl, criamos um Signed URL (Link assinado)
+        // Este link permite que o visualizador leia o ficheiro mesmo sendo privado
+        const { data, error: signedError } = await supabase.storage
+            .from(bucket)
+            .createSignedUrl(filePath, 600); // O link expira em 10 minutos (600 segundos)
+
+        if (signedError) throw signedError;
+
+        // 2. Enviamos o link assinado de volta para o Frontend
+        res.json({ url: data.signedUrl });
+
+    } catch (upErr) {
+        console.error("Erro na Supabase:", upErr);
+        res.status(500).json({ error: "Erro ao gerar link de acesso seguro" });
+    } finally {
+        // Limpeza de ficheiros temporários
+        if (fs.existsSync(scadPath)) fs.unlinkSync(scadPath);
+        if (fs.existsSync(stlPath)) fs.unlinkSync(stlPath);
     }
 });
 
