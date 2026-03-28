@@ -1,27 +1,41 @@
-// Variáveis injetadas pelo backend
-// nome = "REX";
-// telefone = "912345678";
+// --- 1. VARIÁVEIS INJETADAS PELO BACKEND ---
+// Estas variáveis serão preenchidas automaticamente pelo teu código
+nome = ""; 
+telefone = "";
+fonte = "Liberation Sans:style=Bold";
 
-// Importa a base escolhida
+// Parâmetros da Frente (Nome)
+fontSize = 7;
+xPos = 0;
+yPos = 0;
+
+// Parâmetros do Verso (Número)
+fontSizeN = 6.5;
+xPosN = 0;
+yPosN = 0;
+
+// Configuração de profundidade da peça (Base)
+z_superficie = 3.0; 
+
+// --- 2. IMPORTAÇÃO DA BASE ---
+// Usamos a variável 'stl_file' para que o backend diga qual é o modelo (osso, coração, etc)
+// import(stl_file); 
 include <templates/blank_coracao.scad>; 
 
 union() {
-    // 1. Manter a base original com o nome em relevo
-    difference() {
-        coracao_base_cubo(); // Forma base
-        
-        // Opcional: se quiseres o nome escavado, usa 'difference'. 
-        // Se queres em relevo (extrusado para fora), usa 'union'.
-    }
-    
-    // NOME EM RELEVO (Extrusado 1mm para fora)
-    translate([0, 0, 3]) // Assume altura=3 da peça base
-    linear_extrude(height=1) 
-    text(nome, size=4, halign="center", valign="center", font="Liberation Sans:style=Bold");
-}
+    // CORPO DA PEÇA
+    coracao_base_cubo();
 
-// 2. NÚMERO ESCAVADO NO VERSO (Subtração)
-translate([0, 0, -0.5]) // Profundidade de 0.5mm a 1mm no verso
-rotate([0, 180, 0])
-linear_extrude(height=1) 
-text(telefone, size=3, halign="center", valign="center");
+    // NOME NA FRENTE (RELEVO)
+    // Usamos xPos e yPos vindos dos teus Sliders do React
+    translate([xPos, yPos, z_superficie])
+        linear_extrude(height = 1) 
+            text(nome, size = fontSize, font = fonte, halign = "center", valign = "center");
+
+    // NÚMERO NO VERSO (RELEVO OU ESCAVADO)
+    // rotate([0, 180, 0]) faz a inversão para o verso da peça
+    rotate([0, 180, 0])
+        translate([xPosN, yPosN, 0.5]) // 0.5 para garantir que "fura" ou "sai" do verso
+            linear_extrude(height = 1) 
+                text(telefone, size = fontSizeN, font = fonte, halign = "center", valign = "center");
+}
