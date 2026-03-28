@@ -1,5 +1,11 @@
 FROM node:20-bullseye-slim
-RUN apt-get update && apt-get install -y openscad fonts-liberation libglu1-mesa && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y \
+    openscad \
+    fontconfig \
+    fonts-liberation \
+    && rm -rf /var/lib/apt/lists/*
+COPY ./fonts /usr/share/fonts/truetype/custom
+RUN fc-cache -f -v
 WORKDIR /app
 COPY package*.json ./
 RUN npm install
