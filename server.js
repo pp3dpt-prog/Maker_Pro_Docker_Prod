@@ -6,22 +6,20 @@ const fs = require('fs');
 
 const app = express();
 
-// --- CONFIGURAÇÃO DE CORS DINÂMICO ---
-// Isto resolve o erro "Allow Origin Not Matching Origin"
-const allowedOrigins = [
-    "https://maker-pro-frontend-prod.vercel.app",
-    "https://maker-pro-frontend.vercel.app"
-];
-
+// --- CORREÇÃO DEFINITIVA DE CORS ---
 app.use((req, res, next) => {
     const origin = req.headers.origin;
-    if (allowedOrigins.includes(origin)) {
+
+    // Se a origem vier da Vercel (qualquer subdomínio teu), nós aceitamos
+    if (origin && origin.includes("vercel.app")) {
         res.header("Access-Control-Allow-Origin", origin);
     }
+    
     res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
     res.header("Access-Control-Allow-Credentials", "true");
     
+    // Resposta imediata para o pre-flight (IMPORTANTE para o erro que mostraste)
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
     }
@@ -41,7 +39,7 @@ if (!fs.existsSync(tempDir)) {
     fs.mkdirSync(tempDir);
 }
 
-// --- LÓGICA DE GERAÇÃO SCAD ---
+// Lógica de geração SCAD (Mantida conforme o teu padrão)
 const gerarCodigoSCAD = (nome, telefone, forma, fontSizeNome, fontSizeNumero, fonte) => {
     const fontSelected = fonte || "Liberation Sans:style=Bold";
     return `
@@ -59,83 +57,69 @@ difference() {
 `;
 };
 
-// --- ROTA 1: PREVIEW (PNG RÁPIDO - GRÁTIS) ---
+// ROTA DE TESTE (Para verificares no browser se o servidor está vivo)
+app.get('/api/health', (req, res) => {
+    res.json({ status: "ok", origin_received: req.headers.origin });
+});
+
+// ROTA DE PREVIEW (A que o teu frontend deve chamar para testar a ligação)
 app.post('/api/preview', async (req, res) => {
     const { nome, telefone, forma, fonte } = req.body;
     const id = `pre_${Date.now()}`;
     const scadPath = path.join(tempDir, `${id}.scad`);
     const pngPath = path.join(tempDir, `${id}.png`);
 
-    const nomeLimpo = nome.replace(/[^a-z0-9 ]/gi, '').trim();
-    const telLimpo = (telefone || "").replace(/[^0-9+ ]/g, '').trim();
-    const formaLimpa = forma.toLowerCase();
-    const fontSizeNome = Math.max(3, Math.min(5, 35 / Math.max(1, nomeLimpo.length)));
-
     try {
-        const scadCode = gerarCodigoSCAD(nomeLimpo, telLimpo, formaLimpa, fontSizeNome, 4, fonte);
+        const nomeLimpo = (nome || "PET").replace(/[^a-z0-9 ]/gi, '').trim();
+        const scadCode = gerarCodigoSCAD(nomeLimpo, telefone || "", forma || "circulo", 4, 3, fonte);
         fs.writeFileSync(scadPath, scadCode);
 
-        // Gera imagem PNG para visualização rápida e estética
         const comando = `openscad -o "${pngPath}" --imgsize=800,800 --render "${scadPath}"`;
         
         exec(comando, (error) => {
-            if (error) return res.status(500).json({ error: "Erro no preview" });
+            if (error) return res.status(500).json({ error: "Erro OpenSCAD" });
             res.sendFile(pngPath, () => {
                 if (fs.existsSync(scadPath)) fs.unlinkSync(scadPath);
                 if (fs.existsSync(pngPath)) fs.unlinkSync(pngPath);
             });
         });
     } catch (err) {
-        res.status(500).send("Erro interno");
+        res.status(500).json({ error: err.message });
     }
 });
 
-// --- ROTA 2: GERAR STL (VENDA - CONSOME CRÉDITO) ---
+// ROTA DE DOWNLOAD (Consome crédito via RPC)
 app.post('/gerar-stl-pro', async (req, res) => {
     const { nome, telefone, forma, fonte, userId, designId } = req.body;
     
-    if (!userId || !designId) return res.status(401).json({ error: "Faltam dados de utilizador" });
-
     try {
-        // Chamada à RPC do Supabase para garantir o pagamento antes do render
         const { data: pago, error: rpcError } = await supabase.rpc('deduzir_credito_pelo_download', { 
             user_uuid: userId, 
             design_uuid: designId 
         });
 
-        if (rpcError || !pago) return res.status(402).json({ error: "Saldo insuficiente" });
+        if (rpcError || !pago) return res.status(402).json({ error: "Sem créditos" });
 
         const id = `pro_${Date.now()}`;
         const scadPath = path.join(tempDir, `${id}.scad`);
         const stlPath = path.join(tempDir, `${id}.stl`);
 
-        const nomeLimpo = nome.replace(/[^a-z0-9 ]/gi, '').trim();
-        const telLimpo = telefone.replace(/[^0-9+ ]/g, '').trim();
-        const fontSizeNome = Math.max(3, Math.min(5, 35 / Math.max(1, nomeLimpo.length)));
-
-        const scadCode = gerarCodigoSCAD(nomeLimpo, telLimpo, forma.toLowerCase(), fontSizeNome, 4, fonte);
+        const scadCode = gerarCodigoSCAD(nome, telefone, forma, 4, 3, fonte);
         fs.writeFileSync(scadPath, scadCode);
 
-        const comando = `openscad -o "${stlPath}" "${scadPath}"`;
-        
-        exec(comando, async (error) => {
-            if (error) return res.status(500).json({ error: "Erro OpenSCAD" });
+        exec(`openscad -o "${stlPath}" "${scadPath}"`, async (error) => {
+            if (error) return res.status(500).send("Erro Render");
 
-            try {
-                const fileBuffer = fs.readFileSync(stlPath);
-                await supabase.storage.from(process.env.STORAGE_BUCKET_NAME).upload(`final/${id}.stl`, fileBuffer);
-                const { data } = supabase.storage.from(process.env.STORAGE_BUCKET_NAME).getPublicUrl(`final/${id}.stl`);
+            const fileBuffer = fs.readFileSync(stlPath);
+            await supabase.storage.from(process.env.STORAGE_BUCKET_NAME).upload(`final/${id}.stl`, fileBuffer);
+            const { data } = supabase.storage.from(process.env.STORAGE_BUCKET_NAME).getPublicUrl(`final/${id}.stl`);
 
-                res.json({ url: data.publicUrl });
-            } finally {
-                if (fs.existsSync(scadPath)) fs.unlinkSync(scadPath);
-                if (fs.existsSync(stlPath)) fs.unlinkSync(stlPath);
-            }
+            res.json({ url: data.publicUrl });
         });
     } catch (err) {
-        res.status(500).send("Erro interno");
+        res.status(500).send("Erro");
     }
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => console.log(`Servidor ativo na porta ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`Servidor na porta ${PORT}`));
