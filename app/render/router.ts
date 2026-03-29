@@ -7,59 +7,21 @@ import fs from 'fs';
 
 const execPromise = promisify(exec);
 
-// Tipagem para evitar erros de "any"
-interface RenderRequest {
-  produto: {
-    template_name?: string;
-    z_surface?: number;
-  };
-  valores: {
-    fonte: string;
-    nome_pet?: string;
-    telefone?: string;
-    fontSize: number;
-    xPos: number;
-    yPos: number;
-    fontSizeN: number;
-    xPosN: number;
-    yPosN: number;
-  };
-}
-
-const MAPA_FONTES: Record<string, string> = {
-  'OpenSans': 'Open Sans:style=Bold',
-  'Bebas': 'Bebas Neue:style=Regular',
-  'Eindhoven': 'Eindhoven:style=Regular',
-  'BADABB': 'Badaboom BB:style=Regular',
-  'Playfair': 'Playfair Display:style=Bold'
-};
-
 export async function POST(req: Request) {
   try {
-    const body: RenderRequest = await req.json();
-    const { produto, valores } = body;
+    const { produto, valores } = await req.json();
 
     const outputDir = path.join(process.cwd(), 'public', 'renders');
-    
-    // Cria a pasta se não existir para evitar erro de "no such file or directory"
-    if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir, { recursive: true });
-    }
+    if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 
     const outputName = `render_${Date.now()}.stl`;
     const outputPath = path.join(outputDir, outputName);
-    
-    // Caminho do template na raiz do Docker
-    const templateName = produto?.template_name || 'generator.scad';
-    const scadPath = path.join(process.cwd(), templateName);
+    const scadPath = path.join(process.cwd(), produto?.template_name || 'generator.scad');
 
-    const fonteScad = MAPA_FONTES[valores.fonte] || 'Liberation Sans:style=Bold';
-
-    // Argumentos formatados para evitar erros de escape no shell
+    // IGUAL AO TEU PROJETO ANTIGO: Montagem de argumentos rigorosa
     const args = [
       `-D "nome=\\"${valores.nome_pet || ""}\\""`,
       `-D "telefone=\\"${valores.telefone || ""}\\""`,
-      `-D "fonte=\\"${fonteScad}\\""`,
       `-D "fontSize=${valores.fontSize}"`,
       `-D "xPos=${valores.xPos}"`,
       `-D "yPos=${valores.yPos}"`,
@@ -70,23 +32,34 @@ export async function POST(req: Request) {
     ];
 
     const comando = `openscad -o "${outputPath}" ${args.join(' ')} "${scadPath}"`;
-
-    console.log('Comando a ser executado:', comando);
-
-    // Executa o OpenSCAD
+    
+    // Execução
     await execPromise(comando);
 
-    // Retorna o link relativo que o Next.js consegue servir da pasta public
-    return NextResponse.json({ 
-      success: true, 
-      url: `/renders/${outputName}` 
-    });
+    // Retorno com Headers de CORS para a Vercel não bloquear
+    return NextResponse.json(
+      { success: true, url: `/renders/${outputName}` },
+      { 
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
+        }
+      }
+    );
 
   } catch (error: any) {
-    console.error('Erro detalhado no Render:', error);
-    return NextResponse.json(
-      { error: 'Erro interno no servidor de renderização', details: error.message }, 
-      { status: 500 }
-    );
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
+}
+
+// Handler para o pre-flight do browser (OPTIONS)
+export async function OPTIONS() {
+  return NextResponse.json({}, {
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    }
+  });
 }
