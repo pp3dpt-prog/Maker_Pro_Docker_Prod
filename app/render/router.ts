@@ -7,11 +7,11 @@ import fs from 'fs';
 
 const execPromise = promisify(exec);
 
-// ISTO RESOLVE O ERRO DE MATCHING: Aceita qualquer origem
+// Configuração robusta de CORS
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*', 
+  'Access-Control-Allow-Origin': '*', // Em produção, muda para o teu domínio da Vercel
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
 export async function OPTIONS() {

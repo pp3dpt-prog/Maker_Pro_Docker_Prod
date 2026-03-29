@@ -1,15 +1,22 @@
-FROM node:20-bullseye-slim
+FROM node:18-slim
+
+# Instalar OpenSCAD e fontconfig para gerir as fontes
 RUN apt-get update && apt-get install -y \
     openscad \
     fontconfig \
     fonts-liberation \
-    && rm -rf /var/lib/apt/lists/*
-COPY ./fonts /usr/share/fonts/truetype/custom
-RUN fc-cache -f -v
+    fonts-roboto \
+    && apt-get clean
+
 WORKDIR /app
 COPY package*.json ./
 RUN npm install
 COPY . .
-RUN mkdir -p temp
+
+# Criar pastas necessárias para o funcionamento
+RUN mkdir -p temp public/font_previews
+
+# Porta padrão do Render
 EXPOSE 10000
+
 CMD ["node", "server.js"]
