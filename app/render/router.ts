@@ -7,21 +7,21 @@ import fs from 'fs';
 
 const execPromise = promisify(exec);
 
-// Esta é a chave para matar o erro de CORS
+// ISTO RESOLVE O ERRO DE MATCHING: Aceita qualquer origem
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Origin': '*', 
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
-// Responde aos pedidos de "pré-verificação" do navegador
 export async function OPTIONS() {
   return NextResponse.json({}, { headers: corsHeaders });
 }
 
 export async function POST(req: Request) {
   try {
-    const { produto, valores } = await req.json();
+    const body = await req.json();
+    const { produto, valores } = body;
 
     const outputDir = path.join(process.cwd(), 'public', 'renders');
     if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
@@ -41,9 +41,9 @@ export async function POST(req: Request) {
       `-D "yPosN=${valores.yPosN}"`
     ];
 
-    await execPromise(`openscad -o "${outputPath}" ${args.join(' ')} "${scadPath}"`);
+    const comando = `openscad -o "${outputPath}" ${args.join(' ')} "${scadPath}"`;
+    await execPromise(comando);
 
-    // Retorna o sucesso COM os headers de CORS
     return NextResponse.json(
       { success: true, url: `/renders/${outputName}` },
       { headers: corsHeaders }
