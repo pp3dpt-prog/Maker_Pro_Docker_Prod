@@ -7,6 +7,18 @@ import fs from 'fs';
 
 const execPromise = promisify(exec);
 
+// Esta é a chave para matar o erro de CORS
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
+// Responde aos pedidos de "pré-verificação" do navegador
+export async function OPTIONS() {
+  return NextResponse.json({}, { headers: corsHeaders });
+}
+
 export async function POST(req: Request) {
   try {
     const { produto, valores } = await req.json();
@@ -16,9 +28,8 @@ export async function POST(req: Request) {
 
     const outputName = `render_${Date.now()}.stl`;
     const outputPath = path.join(outputDir, outputName);
-    const scadPath = path.join(process.cwd(), produto?.template_name || 'generator.scad');
+    const scadPath = path.join(process.cwd(), 'generator.scad');
 
-    // IGUAL AO TEU PROJETO ANTIGO: Montagem de argumentos rigorosa
     const args = [
       `-D "nome=\\"${valores.nome_pet || ""}\\""`,
       `-D "telefone=\\"${valores.telefone || ""}\\""`,
@@ -27,39 +38,21 @@ export async function POST(req: Request) {
       `-D "yPos=${valores.yPos}"`,
       `-D "fontSizeN=${valores.fontSizeN}"`,
       `-D "xPosN=${valores.xPosN}"`,
-      `-D "yPosN=${valores.yPosN}"`,
-      `-D "z_superficie=${produto?.z_surface || 3.0}"`
+      `-D "yPosN=${valores.yPosN}"`
     ];
 
-    const comando = `openscad -o "${outputPath}" ${args.join(' ')} "${scadPath}"`;
-    
-    // Execução
-    await execPromise(comando);
+    await execPromise(`openscad -o "${outputPath}" ${args.join(' ')} "${scadPath}"`);
 
-    // Retorno com Headers de CORS para a Vercel não bloquear
+    // Retorna o sucesso COM os headers de CORS
     return NextResponse.json(
       { success: true, url: `/renders/${outputName}` },
-      { 
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
-        }
-      }
+      { headers: corsHeaders }
     );
 
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message },
+      { status: 500, headers: corsHeaders }
+    );
   }
-}
-
-// Handler para o pre-flight do browser (OPTIONS)
-export async function OPTIONS() {
-  return NextResponse.json({}, {
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-    }
-  });
 }
