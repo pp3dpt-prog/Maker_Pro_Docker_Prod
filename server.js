@@ -5,34 +5,17 @@ const path = require('path');
 const fs = require('fs');
 
 const app = express();
-
-app.use((req, res, next) => {
-    const origin = req.headers.origin;
-    if (origin && (origin.includes("vercel.app") || origin.includes("localhost"))) {
-        res.header("Access-Control-Allow-Origin", origin);
-    } else {
-        res.header("Access-Control-Allow-Origin", "https://maker-pro-frontend-prod.vercel.app");
-    }
-    res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    res.header("Access-Control-Allow-Credentials", "true");
-    if (req.method === 'OPTIONS') return res.status(200).end();
-    next();
-});
-
 app.use(express.json());
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
-const tempDir = path.join(__dirname, 'temp');
-if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
 
 const gerarCodigoSCAD = (d) => {
-    const nome = (d.nome_pet || "").replace(/[^a-z0-9 ]/gi, '').trim();
-    const tel = (d.telefone || "").replace(/[^0-9+ ]/g, '').trim();
-    const forma = (d.forma || "circulo").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace("ç", "c");
+    const nome = (d.nome_pet || "").replace(/"/g, "'");
+    const tel = (d.telefone || "").replace(/"/g, "'");
+    const forma = (d.forma || "circulo").toLowerCase().trim();
     
-    // CAMINHO ABSOLUTO: Garante que o OpenSCAD encontra o template dentro do Docker
-    const templatePath = path.resolve(__dirname, 'templates', `blank_${forma}.stl`).replace(/\\/g, '/');
+    // Caminho para o ficheiro .scad da forma (ex: templates/blank_circulo.scad)
+    const templatePath = path.resolve(__dirname, 'templates', `blank_${forma}.scad`).replace(/\\/g, '/');
 
     let fSel = "Liberation Sans:style=Bold";
     if (d.fonte === 'Bebas') fSel = "Bebas Neue:style=Regular";
@@ -40,62 +23,67 @@ const gerarCodigoSCAD = (d) => {
     if (d.fonte === 'Eindhoven') fSel = "Eindhoven:style=Regular";
     if (d.fonte === 'BADABB') fSel = "Badaboom BB:style=Regular";
 
-    // O union() agrupa o import com o texto. Se o import falhar, o STL fica vazio.
+    // "use" carrega o ficheiro. Depois chamamos o módulo (ex: blank_circulo();)
     return `
+use <${templatePath}>
+
 union() {
-    import("${templatePath}"); 
+    // Chamada do módulo da forma base
+    blank_${forma}(); 
     
-    // Frente
+    // Texto Frente
+    color("white")
     translate([${d.xPos || 0}, ${d.yPos || 0}, 2.9]) 
-    linear_extrude(height=1.2) 
+    linear_extrude(height=1) 
     text("${nome}", size=${d.fontSize || 7}, halign="center", valign="center", font="${fSel}");
 
-    // Verso
+    // Texto Verso
+    color("white")
     translate([${-(d.xPosN || 0)}, ${d.yPosN || 0}, -0.5]) 
     mirror([1, 0, 0])
-    linear_extrude(height=1.2) 
+    linear_extrude(height=1) 
     text("${tel}", size=${d.fontSizeN || 5}, halign="center", valign="center", font="${fSel}");
 }
 `;
 };
 
 app.post('/gerar-stl-pro', async (req, res) => {
+    const tempDir = path.join(__dirname, 'temp');
+    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
+
+    const id = `final_${Date.now()}`;
+    const scadPath = path.join(tempDir, `${id}.scad`);
+    const stlPath = path.join(tempDir, `${id}.stl`);
+
     try {
-        const id = `final_${Date.now()}`;
-        const scadPath = path.join(tempDir, `${id}.scad`);
-        const stlPath = path.join(tempDir, `${id}.stl`);
+        const codigo = gerarCodigoSCAD(req.body);
+        fs.writeFileSync(scadPath, codigo);
 
-        fs.writeFileSync(scadPath, gerarCodigoSCAD(req.body));
-
-        // Execução do OpenSCAD
+        // Executa o OpenSCAD para converter o script em STL real para o Supabase
         exec(`openscad -o "${stlPath}" "${scadPath}"`, async (error) => {
             if (error) {
                 console.error("Erro OpenSCAD:", error);
-                return res.status(500).json({ error: "Erro na geração do ficheiro" });
+                return res.status(500).json({ error: "Erro ao renderizar" });
             }
 
-            try {
-                const fileBuffer = fs.readFileSync(stlPath);
-                
-                // Gravação no bucket correto: makers_pro_stl_prod
-                const { error: upErr } = await supabase.storage
-                    .from('makers_pro_stl_prod')
-                    .upload(`final/${id}.stl`, fileBuffer, { contentType: 'model/stl', upsert: true });
+            const fileBuffer = fs.readFileSync(stlPath);
+            const { error: upErr } = await supabase.storage
+                .from('makers_pro_stl_prod')
+                .upload(`final/${id}.stl`, fileBuffer, { contentType: 'model/stl', upsert: true });
 
-                if (upErr) throw upErr;
+            if (upErr) throw upErr;
 
-                const { data } = supabase.storage.from('makers_pro_stl_prod').getPublicUrl(`final/${id}.stl`);
-                res.json({ url: data.publicUrl });
+            const { data } = supabase.storage.from('makers_pro_stl_prod').getPublicUrl(`final/${id}.stl`);
+            
+            // Limpa temporários
+            fs.unlinkSync(scadPath);
+            fs.unlinkSync(stlPath);
 
-            } catch (err) {
-                res.status(500).json({ error: "Erro no Supabase" });
-            } finally {
-                if (fs.existsSync(scadPath)) fs.unlinkSync(scadPath);
-                if (fs.existsSync(stlPath)) fs.unlinkSync(stlPath);
-            }
+            res.json({ url: data.publicUrl });
         });
-    } catch (e) { res.status(500).json({ error: "Erro interno" }); }
+    } catch (e) {
+        res.status(500).json({ error: "Erro interno" });
+    }
 });
 
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => console.log("Servidor Docker a correr"));
+app.listen(10000, () => console.log("Docker Server Ready - SCAD templates mode"));
