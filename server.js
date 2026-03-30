@@ -7,19 +7,16 @@ const fs = require('fs');
 const app = express();
 
 // --- CONFIGURAÇÃO DE CORS ÚNICA E DINÂMICA ---
+a// 1. Remove qualquer outro app.use(cors) ou app.use que defina headers de origin
 app.use((req, res, next) => {
-    const origin = req.headers.origin;
-    
-    // Verifica se a origem existe e se pertence ao domínio vercel.app
-    if (origin && origin.includes("vercel.app")) {
-        res.header("Access-Control-Allow-Origin", origin);
-    }
-    
+    // Forçamos o domínio exato que aparece no teu erro
+    res.header("Access-Control-Allow-Origin", "https://maker-pro-frontend.vercel.app");
     res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
     res.header("Access-Control-Allow-Credentials", "true");
     
-    // Resposta imediata para o pre-flight (OPTIONS)
+    // IMPORTANTE: O browser envia um OPTIONS antes do POST. 
+    // Se o OPTIONS não receber 200 OK com os headers acima, o POST é bloqueado.
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
     }
