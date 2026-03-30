@@ -6,17 +6,14 @@ const fs = require('fs');
 
 const app = express();
 
-// --- CONFIGURAÇÃO DE CORS ÚNICA E DINÂMICA ---
-// 1. Remove qualquer outro app.use(cors) ou app.use que defina headers de origin
+// --- CONFIGURAÇÃO DE CORS ---
 app.use((req, res, next) => {
-    // Forçamos o domínio exato que aparece no teu erro
+    // Forçamos o domínio exato do teu frontend na Vercel
     res.header("Access-Control-Allow-Origin", "https://maker-pro-frontend.vercel.app");
     res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
     res.header("Access-Control-Allow-Credentials", "true");
     
-    // IMPORTANTE: O browser envia um OPTIONS antes do POST. 
-    // Se o OPTIONS não receber 200 OK com os headers acima, o POST é bloqueado.
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
     }
@@ -35,7 +32,6 @@ if (!fs.existsSync(tempDir)) {
     fs.mkdirSync(tempDir);
 }
 
-// --- LÓGICA DE GERAÇÃO SCAD ---
 const gerarCodigoSCAD = (nome, telefone, forma, fonte) => {
     const nomeLimpo = (nome || "").replace(/[^a-z0-9 ]/gi, '').trim();
     const telLimpo = (telefone || "").replace(/[^0-9+ ]/g, '').trim();
@@ -61,45 +57,20 @@ difference() {
 `;
 };
 
-// --- ROTA 1: PREVIEW (PNG) ---
-app.post('/api/preview-image', async (req, res) => {
-    const { nome, nome_pet, telefone, forma, fonte } = req.body;
-    const finalNome = nome || nome_pet || ""; // Aceita ambas as variantes do frontend
-    
-    const id = `pre_${Date.now()}`;
-    const scadPath = path.join(tempDir, `${id}.scad`);
-    const pngPath = path.join(tempDir, `${id}.png`);
-
-    try {
-        const scadCode = gerarCodigoSCAD(finalNome, telefone, forma, fonte);
-        fs.writeFileSync(scadPath, scadCode);
-
-        const comando = `openscad -o "${pngPath}" --imgsize=800,800 --render "${scadPath}"`;
-        
-        exec(comando, (error) => {
-            if (error) return res.status(500).send("Erro no preview");
-            res.sendFile(pngPath, () => {
-                if (fs.existsSync(scadPath)) fs.unlinkSync(scadPath);
-                if (fs.existsSync(pngPath)) fs.unlinkSync(pngPath);
-            });
-        });
-    } catch (err) { res.status(500).send("Erro"); }
-});
-
-// --- ROTA 2: COMPRA (STL + CRÉDITOS) ---
 app.post('/gerar-stl-pro', async (req, res) => {
+    // Aceita 'nome' ou 'nome_pet' para evitar erros de mapeamento do frontend
     const { nome, nome_pet, telefone, forma, fonte, userId, designId } = req.body;
     const finalNome = nome || nome_pet || "";
 
     try {
-        // 1. Verificação de Crédito
+        // Validação de créditos via RPC no Supabase
         const { data: pago, error: rpcError } = await supabase.rpc('deduzir_credito_pelo_download', { 
             user_uuid: userId, 
             design_uuid: designId 
         });
 
         if (rpcError || !pago) {
-            return res.status(402).json({ error: "Saldo insuficiente" });
+            return res.status(402).json({ error: "Saldo insuficiente ou erro na conta" });
         }
 
         const id = `final_${Date.now()}`;
@@ -110,7 +81,7 @@ app.post('/gerar-stl-pro', async (req, res) => {
         fs.writeFileSync(scadPath, scadCode);
 
         exec(`openscad -o "${stlPath}" "${scadPath}"`, async (error) => {
-            if (error) return res.status(500).json({ error: "Erro OpenSCAD" });
+            if (error) return res.status(500).json({ error: "Erro na renderização OpenSCAD" });
 
             try {
                 const fileBuffer = fs.readFileSync(stlPath);
@@ -128,7 +99,9 @@ app.post('/gerar-stl-pro', async (req, res) => {
                 if (fs.existsSync(stlPath)) fs.unlinkSync(stlPath);
             }
         });
-    } catch (err) { res.status(500).send("Erro"); }
+    } catch (err) {
+        res.status(500).json({ error: "Erro interno do servidor" });
+    }
 });
 
 const PORT = process.env.PORT || 10000;
