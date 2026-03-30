@@ -1,41 +1,35 @@
-// --- 1. VARIÁVEIS INJETADAS PELO BACKEND ---
-// Estas variáveis serão preenchidas automaticamente pelo teu código
+// --- 1. VARIÁVEIS (O teu Backend já injeta estas) ---
 nome = ""; 
 telefone = "";
 fonte = "Liberation Sans:style=Bold";
+forma = "coracao"; // Adicionamos esta variável para o backend dizer qual é a forma
 
-// Parâmetros da Frente (Nome)
 fontSize = 7;
 xPos = 0;
 yPos = 0;
-
-// Parâmetros do Verso (Número)
 fontSizeN = 6.5;
 xPosN = 0;
 yPosN = 0;
-
-// Configuração de profundidade da peça (Base)
 z_superficie = 3.0; 
 
-// --- 2. IMPORTAÇÃO DA BASE ---
-// Usamos a variável 'stl_file' para que o backend diga qual é o modelo (osso, coração, etc)
-// import(stl_file); 
+// --- 2. IMPORTAÇÃO DINÂMICA ---
+// O backend deve garantir que este 'include' aponta para o ficheiro correto
+// Se o teu server.js já faz a troca do nome do ficheiro, mantemos a lógica:
 include <templates/blank_coracao.scad>; 
 
 union() {
-    // CORPO DA PEÇA
-    coracao_base_cubo();
+    // AQUI ESTÁ O ERRO: Tens de garantir que chamas o módulo da peça!
+    // Se o ficheiro é 'blank_coracao.scad', o módulo lá dentro deve ser chamado:
+    coracao_base_cubo(); //  - Confirma se este é o nome dentro do teu .scad
 
-    // NOME NA FRENTE (RELEVO)
-    // Usamos xPos e yPos vindos dos teus Sliders do React
+    // NOME NA FRENTE
     translate([xPos, yPos, z_superficie])
         linear_extrude(height = 1) 
             text(nome, size = fontSize, font = fonte, halign = "center", valign = "center");
 
-    // NÚMERO NO VERSO (RELEVO OU ESCAVADO)
-    // rotate([0, 180, 0]) faz a inversão para o verso da peça
+    // NÚMERO NO VERSO
     rotate([0, 180, 0])
-        translate([xPosN, yPosN, 0.5]) // 0.5 para garantir que "fura" ou "sai" do verso
+        translate([xPosN, yPosN, 0.5]) 
             linear_extrude(height = 1) 
                 text(telefone, size = fontSizeN, font = fonte, halign = "center", valign = "center");
 }
