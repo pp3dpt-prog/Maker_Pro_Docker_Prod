@@ -3,8 +3,17 @@ const { exec } = require('child_process');
 const { createClient } = require('@supabase/supabase-js');
 const path = require('path');
 const fs = require('fs');
+const cors = require('cors'); // Vamos usar o pacote oficial para garantir
 
 const app = express();
+
+// 1. CONFIGURAÇÃO DE CORS - DEVE SER A PRIMEIRA COISA NO CÓDIGO
+app.use(cors({
+    origin: '*', // Permite todas as origens temporariamente para teste, ou usa a tua URL da Vercel
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 app.use(express.json());
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
@@ -23,12 +32,12 @@ const gerarCodigoSCAD = (d) => {
     if (d.fonte === 'Eindhoven') fSel = "Eindhoven:style=Regular";
     if (d.fonte === 'BADABB') fSel = "Badaboom BB:style=Regular";
 
-    // "use" carrega o ficheiro. Depois chamamos o módulo (ex: blank_circulo();)
+    // "include" é melhor que "use" se quiseres garantir que as variáveis passem
     return `
-use <${templatePath}>
+include <${templatePath}>
 
 union() {
-    // Chamada do módulo da forma base
+    // Chamada do módulo (o ficheiro blank_circulo.scad deve conter: module blank_circulo() { ... })
     blank_${forma}(); 
     
     // Texto Frente
@@ -59,11 +68,10 @@ app.post('/gerar-stl-pro', async (req, res) => {
         const codigo = gerarCodigoSCAD(req.body);
         fs.writeFileSync(scadPath, codigo);
 
-        // Executa o OpenSCAD para converter o script em STL real para o Supabase
         exec(`openscad -o "${stlPath}" "${scadPath}"`, async (error) => {
             if (error) {
                 console.error("Erro OpenSCAD:", error);
-                return res.status(500).json({ error: "Erro ao renderizar" });
+                return res.status(500).json({ error: "Erro na renderização 3D" });
             }
 
             const fileBuffer = fs.readFileSync(stlPath);
@@ -75,15 +83,17 @@ app.post('/gerar-stl-pro', async (req, res) => {
 
             const { data } = supabase.storage.from('makers_pro_stl_prod').getPublicUrl(`final/${id}.stl`);
             
-            // Limpa temporários
-            fs.unlinkSync(scadPath);
-            fs.unlinkSync(stlPath);
+            // Limpeza
+            if (fs.existsSync(scadPath)) fs.unlinkSync(scadPath);
+            if (fs.existsSync(stlPath)) fs.unlinkSync(stlPath);
 
             res.json({ url: data.publicUrl });
         });
     } catch (e) {
-        res.status(500).json({ error: "Erro interno" });
+        console.error("Erro Interno:", e);
+        res.status(500).json({ error: "Erro interno no servidor" });
     }
 });
 
-app.listen(10000, () => console.log("Docker Server Ready - SCAD templates mode"));
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Docker pronto na porta ${PORT}`));
