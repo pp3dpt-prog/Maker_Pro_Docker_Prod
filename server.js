@@ -10,11 +10,11 @@ const app = express();
 app.use((req, res, next) => {
     const origin = req.headers.origin;
     
-    // Esta lógica aceita o teu domínio principal, o de produção (-prod) 
-    // e qualquer preview da Vercel para nunca mais teres erro de Network.
+    // Aceita qualquer origem que contenha "vercel.app" ou "localhost"
     if (origin && (origin.includes("vercel.app") || origin.includes("localhost"))) {
         res.header("Access-Control-Allow-Origin", origin);
     } else {
+        // Fallback para o teu domínio de produção principal
         res.header("Access-Control-Allow-Origin", "https://maker-pro-frontend-prod.vercel.app");
     }
 
@@ -22,6 +22,7 @@ app.use((req, res, next) => {
     res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
     res.header("Access-Control-Allow-Credentials", "true");
     
+    // IMPORTANTE: Responde imediatamente ao pre-flight do browser (OPTIONS)
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
     }
