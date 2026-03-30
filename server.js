@@ -65,18 +65,21 @@ difference() {
 // ROTA PRINCIPAL
 app.post('/gerar-stl-pro', async (req, res) => {
     const { nome, nome_pet, telefone, forma, fonte, userId, designId } = req.body;
-    
-    // Mapeamento: usa 'nome' ou 'nome_pet' (o que vier do frontend)
-    const finalNome = nome || nome_pet || "PET";
+    const finalNome = nome || nome_pet || "";
 
     try {
-        // Se userId for null ou string "null", saltamos a dedução para não crashar o RPC
-        if (userId && userId !== "null") {
+        // CORREÇÃO: Só verifica créditos se existir um userId real
+        if (userId && userId !== null && userId !== "null") {
             const { data: pago, error: rpcError } = await supabase.rpc('deduzir_credito_pelo_download', { 
                 user_uuid: userId, 
                 design_uuid: designId 
             });
-            if (rpcError || !pago) return res.status(402).json({ error: "Saldo insuficiente" });
+
+            if (rpcError || !pago) {
+                return res.status(402).json({ error: "Saldo insuficiente" });
+            }
+        } else {
+            console.log("Aviso: Gerando sem verificação de créditos (userId nulo).");
         }
 
         const id = `final_${Date.now()}`;
