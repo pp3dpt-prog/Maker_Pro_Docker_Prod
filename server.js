@@ -6,51 +6,45 @@ const fs = require('fs');
 
 const app = express();
 
-// --- CONFIGURAÇÃO DE CORS (Baseada na que funciona para ti) ---
+// --- CONFIGURAÇÃO DE CORS ÚNICA E DINÂMICA ---
 app.use((req, res, next) => {
-    // Adicionei ambos os domínios para garantir que não falha em nenhum
     const origin = req.headers.origin;
-    if (origin && (origin.includes("vercel.app"))) {
+    
+    // Verifica se a origem existe e se pertence ao domínio vercel.app
+    if (origin && origin.includes("vercel.app")) {
         res.header("Access-Control-Allow-Origin", origin);
     }
+    
     res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
     res.header("Access-Control-Allow-Credentials", "true");
     
+    // Resposta imediata para o pre-flight (OPTIONS)
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
     }
     next();
 });
 
-app.use((req, res, next) => {
-    const origin = req.headers.origin;
-    // Aceita qualquer pedido que venha de um domínio .vercel.app
-    if (origin && origin.includes("vercel.app")) {
-        res.header("Access-Control-Allow-Origin", origin);
-    }
-    res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    res.header("Access-Control-Allow-Credentials", "true");
-    
-    if (req.method === 'OPTIONS') return res.status(200).end();
-    next();
-});
+app.use(express.json());
 
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+const supabase = createClient(
+    process.env.SUPABASE_URL, 
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
 const tempDir = path.join(__dirname, 'temp');
 if (!fs.existsSync(tempDir)) {
     fs.mkdirSync(tempDir);
 }
 
-// --- FUNÇÃO AUXILIAR DE GEOMETRIA (A que tu tens no server.js funcional) ---
+// --- LÓGICA DE GERAÇÃO SCAD ---
 const gerarCodigoSCAD = (nome, telefone, forma, fonte) => {
-    const nomeLimpo = nome.replace(/[^a-z0-9 ]/gi, '').trim();
-    const telLimpo = telefone.replace(/[^0-9+ ]/g, '').trim();
-    const formaLimpa = forma.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace("ç", "c");
-    const fontSize = Math.max(3, Math.min(5, 35 / Math.max(1, nomeLimpo.length)));
+    const nomeLimpo = (nome || "").replace(/[^a-z0-9 ]/gi, '').trim();
+    const telLimpo = (telefone || "").replace(/[^0-9+ ]/g, '').trim();
+    const formaLimpa = (forma || "circulo").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace("ç", "c");
     
+    const fontSize = Math.max(3, Math.min(5, 35 / Math.max(1, nomeLimpo.length)));
     const fontSizeNome = formaLimpa === "coracao" ? fontSize * 0.4 : fontSize;
     const fontSizeNumero = formaLimpa === "coracao" ? 2.2 : 4;
     const fontSelected = fonte || "Liberation Sans:style=Bold";
@@ -70,36 +64,19 @@ difference() {
 `;
 };
 
-// --- ROTA 1: PREVIEW (PARA O VISUALIZADOR ANTES DA COMPRA) ---
-// Adiciona esta nova rota ao teu server.js que já funciona
+// --- ROTA 1: PREVIEW (PNG) ---
 app.post('/api/preview-image', async (req, res) => {
-    const { nome, telefone, forma } = req.body;
+    const { nome, nome_pet, telefone, forma, fonte } = req.body;
+    const finalNome = nome || nome_pet || ""; // Aceita ambas as variantes do frontend
+    
     const id = `pre_${Date.now()}`;
     const scadPath = path.join(tempDir, `${id}.scad`);
     const pngPath = path.join(tempDir, `${id}.png`);
-    const nomeParaProcessar = req.body.nome || req.body.nome_pet;
-
-
-    // Usa a mesma lógica de limpeza que já tens
-    const nomeLimpo = nome.replace(/[^a-z0-9 ]/gi, '').trim();
-    const telLimpo = telefone.replace(/[^0-9+ ]/g, '').trim();
-    const formaLimpa = forma.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace("ç", "c");
-
-    const scadCode = `
-        difference() {
-            union() {
-                import("../templates/blank_${formaLimpa}.stl"); 
-                translate([0, 0, 2.9]) linear_extrude(height=1) 
-                text("${nomeLimpo}", size=4, halign="center", valign="center", font="Liberation Sans:style=Bold");
-            }
-            translate([0, 0, -1.5]) mirror([1, 0, 0]) linear_extrude(height=2.5) 
-            text("${telLimpo}", size=4, halign="center", valign="center", font="Liberation Sans:style=Bold");
-        }
-    `;
 
     try {
+        const scadCode = gerarCodigoSCAD(finalNome, telefone, forma, fonte);
         fs.writeFileSync(scadPath, scadCode);
-        // O segredo está aqui: geramos um PNG (rápido) em vez de um STL (pesado)
+
         const comando = `openscad -o "${pngPath}" --imgsize=800,800 --render "${scadPath}"`;
         
         exec(comando, (error) => {
@@ -112,12 +89,13 @@ app.post('/api/preview-image', async (req, res) => {
     } catch (err) { res.status(500).send("Erro"); }
 });
 
-// --- ROTA 2: COMPRA (ESTA É A QUE CONSOME O CRÉDITO) ---
+// --- ROTA 2: COMPRA (STL + CRÉDITOS) ---
 app.post('/gerar-stl-pro', async (req, res) => {
-    const { nome, telefone, forma, fonte, userId, designId } = req.body;
+    const { nome, nome_pet, telefone, forma, fonte, userId, designId } = req.body;
+    const finalNome = nome || nome_pet || "";
 
     try {
-        // 1. Verificação de Crédito (RPC)
+        // 1. Verificação de Crédito
         const { data: pago, error: rpcError } = await supabase.rpc('deduzir_credito_pelo_download', { 
             user_uuid: userId, 
             design_uuid: designId 
@@ -127,12 +105,11 @@ app.post('/gerar-stl-pro', async (req, res) => {
             return res.status(402).json({ error: "Saldo insuficiente" });
         }
 
-        // 2. Geração do STL
         const id = `final_${Date.now()}`;
         const scadPath = path.join(tempDir, `${id}.scad`);
         const stlPath = path.join(tempDir, `${id}.stl`);
 
-        const scadCode = gerarCodigoSCAD(nome, telefone, forma, fonte);
+        const scadCode = gerarCodigoSCAD(finalNome, telefone, forma, fonte);
         fs.writeFileSync(scadPath, scadCode);
 
         exec(`openscad -o "${stlPath}" "${scadPath}"`, async (error) => {
@@ -154,9 +131,7 @@ app.post('/gerar-stl-pro', async (req, res) => {
                 if (fs.existsSync(stlPath)) fs.unlinkSync(stlPath);
             }
         });
-    } catch (err) {
-        res.status(500).send("Erro");
-    }
+    } catch (err) { res.status(500).send("Erro"); }
 });
 
 const PORT = process.env.PORT || 10000;
