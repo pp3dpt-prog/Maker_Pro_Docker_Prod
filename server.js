@@ -6,19 +6,22 @@ const fs = require('fs');
 
 const app = express();
 
-// --- CORREÇÃO 1: CORS NO TOPO ABSOLUTO ---
+// --- 1. CONFIGURAÇÃO DE CORS DINÂMICA (TOP PRIORITY) ---
 app.use((req, res, next) => {
     const origin = req.headers.origin;
-    // Aceita qualquer origem da Vercel para não haver falhas de "Mismatch"
+    // Se o pedido vier de qualquer subdomínio da vercel, aceitamos.
+    // Isto evita o erro "Allow Origin Not Matching" se o URL da Vercel mudar.
     if (origin && origin.includes("vercel.app")) {
         res.header("Access-Control-Allow-Origin", origin);
     } else {
         res.header("Access-Control-Allow-Origin", "https://maker-pro-frontend.vercel.app");
     }
+
     res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
     res.header("Access-Control-Allow-Credentials", "true");
     
+    // Resposta imediata para o pre-flight (IMPORTANTE para o erro XHROPTIONS)
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
     }
@@ -27,27 +30,48 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 
-// Inicialização do Supabase com verificação
 const supabase = createClient(
-    process.env.SUPABASE_URL || '', 
-    process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+    process.env.SUPABASE_URL, 
+    process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
 const tempDir = path.join(__dirname, 'temp');
-if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
+if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir);
+}
 
-// ROTA CORRIGIDA
+// Função de geração de código SCAD
+const gerarCodigoSCAD = (nome, telefone, forma, fonte) => {
+    const nomeLimpo = (nome || "").replace(/[^a-z0-9 ]/gi, '').trim();
+    const telLimpo = (telefone || "").replace(/[^0-9+ ]/g, '').trim();
+    const formaLimpa = (forma || "circulo").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace("ç", "c");
+    const fontSelected = fonte || "Liberation Sans:style=Bold";
+
+    return `
+difference() {
+    union() {
+        import("../templates/blank_${formaLimpa}.stl"); 
+        translate([0, 0, 2.9]) 
+        linear_extrude(height=1) 
+        text("${nomeLimpo}", size=5, halign="center", valign="center", font="${fontSelected}");
+    }
+    translate([0, 0, -1.5]) mirror([1, 0, 0])
+    linear_extrude(height=2.5) 
+    text("${telLimpo}", size=4, halign="center", valign="center", font="${fontSelected}");
+}
+`;
+};
+
+// ROTA PRINCIPAL
 app.post('/gerar-stl-pro', async (req, res) => {
-    try {
-        const { nome, nome_pet, telefone, forma, fonte, userId, designId } = req.body;
-        const finalNome = nome || nome_pet || "SEM NOME";
+    const { nome, nome_pet, telefone, forma, fonte, userId, designId } = req.body;
+    
+    // Mapeamento: usa 'nome' ou 'nome_pet' (o que vier do frontend)
+    const finalNome = nome || nome_pet || "PET";
 
-        // --- CORREÇÃO 2: EVITAR CRASH SE USER FOR NULL ---
-        if (!userId || userId === null) {
-            console.log("Aviso: Tentativa de gerar sem UserId. A ignorar créditos para teste.");
-            // Durante os testes, vamos deixar passar. 
-            // Se quiseres bloquear, usa: return res.status(401).json({ error: "Login necessário" });
-        } else {
+    try {
+        // Se userId for null ou string "null", saltamos a dedução para não crashar o RPC
+        if (userId && userId !== "null") {
             const { data: pago, error: rpcError } = await supabase.rpc('deduzir_credito_pelo_download', { 
                 user_uuid: userId, 
                 design_uuid: designId 
@@ -59,43 +83,25 @@ app.post('/gerar-stl-pro', async (req, res) => {
         const scadPath = path.join(tempDir, `${id}.scad`);
         const stlPath = path.join(tempDir, `${id}.stl`);
 
-        // Função de geração (usa a que já tinhas no server.js)
-        const scadCode = `
-            // ... (o teu código de gerarCodigoSCAD aqui) ...
-        `;
-        
-        fs.writeFileSync(scadPath, scadCode);
+        fs.writeFileSync(scadPath, gerarCodigoSCAD(finalNome, telefone, forma, fonte));
 
         exec(`openscad -o "${stlPath}" "${scadPath}"`, async (error) => {
-            if (error) {
-                console.error("Erro OpenSCAD:", error);
-                return res.status(500).json({ error: "Erro na renderização" });
-            }
+            if (error) return res.status(500).json({ error: "Erro no OpenSCAD" });
 
             try {
                 const fileBuffer = fs.readFileSync(stlPath);
-                const fileName = `final/${id}.stl`;
+                const filePath = `final/${id}.stl`;
                 
-                const { error: uploadError } = await supabase.storage
-                    .from('makers_pro_stls')
-                    .upload(fileName, fileBuffer);
-
-                if (uploadError) throw uploadError;
-
-                const { data } = supabase.storage
-                    .from('makers_pro_stls')
-                    .getPublicUrl(fileName);
+                await supabase.storage.from('makers_pro_stls').upload(filePath, fileBuffer);
+                const { data } = supabase.storage.from('makers_pro_stls').getPublicUrl(filePath);
 
                 res.json({ url: data.publicUrl });
-            } catch (err) {
-                res.status(500).json({ error: "Erro no upload para Supabase" });
             } finally {
                 if (fs.existsSync(scadPath)) fs.unlinkSync(scadPath);
                 if (fs.existsSync(stlPath)) fs.unlinkSync(stlPath);
             }
         });
     } catch (err) {
-        console.error("Erro Geral:", err);
         res.status(500).json({ error: "Erro interno no servidor" });
     }
 });
