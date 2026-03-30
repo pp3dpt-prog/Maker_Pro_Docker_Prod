@@ -9,20 +9,15 @@ const app = express();
 // --- CONFIGURAÇÃO DE CORS DINÂMICA ---
 app.use((req, res, next) => {
     const origin = req.headers.origin;
-    
-    // Aceita qualquer origem que contenha "vercel.app" ou "localhost"
     if (origin && (origin.includes("vercel.app") || origin.includes("localhost"))) {
         res.header("Access-Control-Allow-Origin", origin);
     } else {
-        // Fallback para o teu domínio de produção principal
         res.header("Access-Control-Allow-Origin", "https://maker-pro-frontend-prod.vercel.app");
     }
-
     res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
     res.header("Access-Control-Allow-Credentials", "true");
     
-    // IMPORTANTE: Responde imediatamente ao pre-flight do browser (OPTIONS)
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
     }
@@ -69,14 +64,12 @@ difference() {
 app.post('/api/preview-image', async (req, res) => {
     const { nome, nome_pet, telefone, forma, fonte } = req.body;
     const finalNome = nome || nome_pet || "";
-    
     const id = `pre_${Date.now()}`;
     const scadPath = path.join(tempDir, `${id}.scad`);
     const pngPath = path.join(tempDir, `${id}.png`);
 
     try {
-        const scadCode = gerarCodigoSCAD(finalNome, telefone, forma, fonte);
-        fs.writeFileSync(scadPath, scadCode);
+        fs.writeFileSync(scadPath, gerarCodigoSCAD(finalNome, telefone, forma, fonte));
         const comando = `openscad -o "${pngPath}" --imgsize=800,800 --render "${scadPath}"`;
         
         exec(comando, (error) => {
@@ -94,7 +87,6 @@ app.post('/gerar-stl-pro', async (req, res) => {
     const finalNome = nome || nome_pet || "";
 
     try {
-        // CORREÇÃO: Evita crash se o userId for nulo
         if (!userId || userId === "null") {
             console.log("Ignorando RPC: userId nulo");
         } else {
@@ -112,18 +104,32 @@ app.post('/gerar-stl-pro', async (req, res) => {
         fs.writeFileSync(scadPath, gerarCodigoSCAD(finalNome, telefone, forma, fonte));
 
         exec(`openscad -o "${stlPath}" "${scadPath}"`, async (error) => {
-            if (error) return res.status(500).json({ error: "Erro OpenSCAD" });
+    if (error) return res.status(500).json({ error: "Erro OpenSCAD" });
 
-            try {
-                const fileBuffer = fs.readFileSync(stlPath);
-                await supabase.storage.from('makers_pro_stls').upload(`final/${id}.stl`, fileBuffer);
-                const { data } = supabase.storage.from('makers_pro_stls').getPublicUrl(`final/${id}.stl`);
-                res.json({ url: data.publicUrl });
-            } finally {
-                if (fs.existsSync(scadPath)) fs.unlinkSync(scadPath);
-                if (fs.existsSync(stlPath)) fs.unlinkSync(stlPath);
-            }
-        });
+    try {
+        const fileBuffer = fs.readFileSync(stlPath);
+        
+        // CORREÇÃO: Usando o bucket makers_pro_stl_prod conforme o teu .env.local
+        await supabase.storage
+            .from('makers_pro_stl_prod') 
+            .upload(`final/${id}.stl`, fileBuffer, {
+                contentType: 'model/stl',
+                upsert: true
+            });
+
+        const { data } = supabase.storage
+            .from('makers_pro_stl_prod')
+            .getPublicUrl(`final/${id}.stl`);
+
+        res.json({ url: data.publicUrl });
+    } catch (uploadErr) {
+        console.error("Erro no upload:", uploadErr);
+        res.status(500).json({ error: "Erro no upload para o Storage" });
+    } finally {
+        if (fs.existsSync(scadPath)) fs.unlinkSync(scadPath);
+        if (fs.existsSync(stlPath)) fs.unlinkSync(stlPath);
+    }
+});
     } catch (err) { res.status(500).json({ error: "Erro interno" }); }
 });
 
