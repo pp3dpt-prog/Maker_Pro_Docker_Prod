@@ -90,7 +90,7 @@ app.post('/gerar-stl-pro', async (req, res) => {
                 
                 // --- VERIFICAÇÃO CRÍTICA DO BUCKET ---
                 // Certifica-te que no Supabase o nome é exatamente este:
-                const bucketName = 'maker_pro_stl_prod'; 
+                const bucketName = 'makers_pro_stl_prod'; 
 
                 const { error: upErr } = await supabase.storage
                     .from(bucketName)
