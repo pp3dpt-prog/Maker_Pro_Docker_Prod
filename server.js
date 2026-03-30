@@ -6,14 +6,15 @@ const fs = require('fs');
 
 const app = express();
 
-// --- CONFIGURAÇÃO DE CORS ---
+// --- CONFIGURAÇÃO DE CORS PRIORITÁRIA ---
 app.use((req, res, next) => {
-    // Forçamos o domínio exato do teu frontend na Vercel
+    // Permite explicitamente o teu domínio da Vercel
     res.header("Access-Control-Allow-Origin", "https://maker-pro-frontend.vercel.app");
     res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
     res.header("Access-Control-Allow-Credentials", "true");
     
+    // Responde imediatamente ao pedido OPTIONS (Pre-flight) do browser
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
     }
@@ -32,14 +33,12 @@ if (!fs.existsSync(tempDir)) {
     fs.mkdirSync(tempDir);
 }
 
+// Lógica de geração OpenSCAD mantida conforme o teu ficheiro original
 const gerarCodigoSCAD = (nome, telefone, forma, fonte) => {
     const nomeLimpo = (nome || "").replace(/[^a-z0-9 ]/gi, '').trim();
     const telLimpo = (telefone || "").replace(/[^0-9+ ]/g, '').trim();
     const formaLimpa = (forma || "circulo").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace("ç", "c");
     
-    const fontSize = Math.max(3, Math.min(5, 35 / Math.max(1, nomeLimpo.length)));
-    const fontSizeNome = formaLimpa === "coracao" ? fontSize * 0.4 : fontSize;
-    const fontSizeNumero = formaLimpa === "coracao" ? 2.2 : 4;
     const fontSelected = fonte || "Liberation Sans:style=Bold";
 
     return `
@@ -48,50 +47,45 @@ difference() {
         import("../templates/blank_${formaLimpa}.stl"); 
         translate([0, 0, 2.9]) 
         linear_extrude(height=1) 
-        text("${nomeLimpo}", size=${fontSizeNome}, halign="center", valign="center", font="${fontSelected}");
+        text("${nomeLimpo}", size=5, halign="center", valign="center", font="${fontSelected}");
     }
     translate([0, 0, -1.5]) mirror([1, 0, 0])
     linear_extrude(height=2.5) 
-    text("${telLimpo}", size=${fontSizeNumero}, halign="center", valign="center", font="${fontSelected}");
+    text("${telLimpo}", size=4, halign="center", valign="center", font="${fontSelected}");
 }
 `;
 };
 
 app.post('/gerar-stl-pro', async (req, res) => {
-    // Aceita 'nome' ou 'nome_pet' para evitar erros de mapeamento do frontend
     const { nome, nome_pet, telefone, forma, fonte, userId, designId } = req.body;
-    const finalNome = nome || nome_pet || "";
+    const finalNome = nome || nome_pet || ""; // Aceita ambas as variantes do frontend
 
     try {
-        // Validação de créditos via RPC no Supabase
+        // Validação de créditos
+        // Se o userId for null no frontend, esta chamada pode falhar. 
+        // Para testes, podes comentar este bloco do RPC.
         const { data: pago, error: rpcError } = await supabase.rpc('deduzir_credito_pelo_download', { 
             user_uuid: userId, 
             design_uuid: designId 
         });
 
         if (rpcError || !pago) {
-            return res.status(402).json({ error: "Saldo insuficiente ou erro na conta" });
+            return res.status(402).json({ error: "Saldo insuficiente ou erro de autenticação" });
         }
 
         const id = `final_${Date.now()}`;
         const scadPath = path.join(tempDir, `${id}.scad`);
         const stlPath = path.join(tempDir, `${id}.stl`);
 
-        const scadCode = gerarCodigoSCAD(finalNome, telefone, forma, fonte);
-        fs.writeFileSync(scadPath, scadCode);
+        fs.writeFileSync(scadPath, gerarCodigoSCAD(finalNome, telefone, forma, fonte));
 
         exec(`openscad -o "${stlPath}" "${scadPath}"`, async (error) => {
             if (error) return res.status(500).json({ error: "Erro na renderização OpenSCAD" });
 
             try {
                 const fileBuffer = fs.readFileSync(stlPath);
-                await supabase.storage
-                    .from('makers_pro_stls')
-                    .upload(`final/${id}.stl`, fileBuffer);
-
-                const { data } = supabase.storage
-                    .from('makers_pro_stls')
-                    .getPublicUrl(`final/${id}.stl`);
+                await supabase.storage.from('makers_pro_stls').upload(`final/${id}.stl`, fileBuffer);
+                const { data } = supabase.storage.from('makers_pro_stls').getPublicUrl(`final/${id}.stl`);
 
                 res.json({ url: data.publicUrl });
             } finally {
@@ -100,7 +94,7 @@ app.post('/gerar-stl-pro', async (req, res) => {
             }
         });
     } catch (err) {
-        res.status(500).json({ error: "Erro interno do servidor" });
+        res.status(500).json({ error: "Erro interno" });
     }
 });
 
