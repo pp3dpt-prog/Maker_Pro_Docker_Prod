@@ -23,7 +23,19 @@ app.use((req, res, next) => {
     next();
 });
 
-app.use(express.json());
+app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    // Aceita qualquer pedido que venha de um domínio .vercel.app
+    if (origin && origin.includes("vercel.app")) {
+        res.header("Access-Control-Allow-Origin", origin);
+    }
+    res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.header("Access-Control-Allow-Credentials", "true");
+    
+    if (req.method === 'OPTIONS') return res.status(200).end();
+    next();
+});
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
@@ -59,29 +71,45 @@ difference() {
 };
 
 // --- ROTA 1: PREVIEW (PARA O VISUALIZADOR ANTES DA COMPRA) ---
-app.post('/api/preview-img', async (req, res) => {
-    const { nome, telefone, forma, fonte } = req.body;
+// Adiciona esta nova rota ao teu server.js que já funciona
+app.post('/api/preview-image', async (req, res) => {
+    const { nome, telefone, forma } = req.body;
     const id = `pre_${Date.now()}`;
     const scadPath = path.join(tempDir, `${id}.scad`);
     const pngPath = path.join(tempDir, `${id}.png`);
+    const nomeParaProcessar = req.body.nome || req.body.nome_pet;
+
+
+    // Usa a mesma lógica de limpeza que já tens
+    const nomeLimpo = nome.replace(/[^a-z0-9 ]/gi, '').trim();
+    const telLimpo = telefone.replace(/[^0-9+ ]/g, '').trim();
+    const formaLimpa = forma.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace("ç", "c");
+
+    const scadCode = `
+        difference() {
+            union() {
+                import("../templates/blank_${formaLimpa}.stl"); 
+                translate([0, 0, 2.9]) linear_extrude(height=1) 
+                text("${nomeLimpo}", size=4, halign="center", valign="center", font="Liberation Sans:style=Bold");
+            }
+            translate([0, 0, -1.5]) mirror([1, 0, 0]) linear_extrude(height=2.5) 
+            text("${telLimpo}", size=4, halign="center", valign="center", font="Liberation Sans:style=Bold");
+        }
+    `;
 
     try {
-        const scadCode = gerarCodigoSCAD(nome, telefone, forma, fonte);
         fs.writeFileSync(scadPath, scadCode);
-
-        // Gera PNG rápido para o cliente ver a peça real
+        // O segredo está aqui: geramos um PNG (rápido) em vez de um STL (pesado)
         const comando = `openscad -o "${pngPath}" --imgsize=800,800 --render "${scadPath}"`;
         
         exec(comando, (error) => {
-            if (error) return res.status(500).json({ error: "Erro no render de imagem" });
+            if (error) return res.status(500).send("Erro no preview");
             res.sendFile(pngPath, () => {
                 if (fs.existsSync(scadPath)) fs.unlinkSync(scadPath);
                 if (fs.existsSync(pngPath)) fs.unlinkSync(pngPath);
             });
         });
-    } catch (err) {
-        res.status(500).send("Erro interno");
-    }
+    } catch (err) { res.status(500).send("Erro"); }
 });
 
 // --- ROTA 2: COMPRA (ESTA É A QUE CONSOME O CRÉDITO) ---
