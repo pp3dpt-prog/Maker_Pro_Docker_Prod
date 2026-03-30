@@ -6,7 +6,6 @@ const fs = require('fs');
 
 const app = express();
 
-// Configuração de CORS para permitir a Vercel e Localhost
 app.use((req, res, next) => {
     const origin = req.headers.origin;
     if (origin && (origin.includes("vercel.app") || origin.includes("localhost"))) {
@@ -32,8 +31,8 @@ const gerarCodigoSCAD = (d) => {
     const tel = (d.telefone || "").replace(/[^0-9+ ]/g, '').trim();
     const forma = (d.forma || "circulo").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace("ç", "c");
     
-    // IMPORTANTE: Caminho para os templates STL base
-    const templatePath = path.join(__dirname, 'templates', `blank_${forma}.stl`);
+    // CAMINHO ABSOLUTO: Garante que o OpenSCAD encontra o template dentro do Docker
+    const templatePath = path.resolve(__dirname, 'templates', `blank_${forma}.stl`).replace(/\\/g, '/');
 
     let fSel = "Liberation Sans:style=Bold";
     if (d.fonte === 'Bebas') fSel = "Bebas Neue:style=Regular";
@@ -41,27 +40,26 @@ const gerarCodigoSCAD = (d) => {
     if (d.fonte === 'Eindhoven') fSel = "Eindhoven:style=Regular";
     if (d.fonte === 'BADABB') fSel = "Badaboom BB:style=Regular";
 
-    // O comando union() funde o template importado com o texto gerado
+    // O union() agrupa o import com o texto. Se o import falhar, o STL fica vazio.
     return `
 union() {
     import("${templatePath}"); 
     
-    // Gravação Frente (Nome)
+    // Frente
     translate([${d.xPos || 0}, ${d.yPos || 0}, 2.9]) 
-    linear_extrude(height=1) 
+    linear_extrude(height=1.2) 
     text("${nome}", size=${d.fontSize || 7}, halign="center", valign="center", font="${fSel}");
 
-    // Gravação Verso (Telefone) - Espelhada para leitura correta após impressão
+    // Verso
     translate([${-(d.xPosN || 0)}, ${d.yPosN || 0}, -0.5]) 
     mirror([1, 0, 0])
-    linear_extrude(height=1) 
+    linear_extrude(height=1.2) 
     text("${tel}", size=${d.fontSizeN || 5}, halign="center", valign="center", font="${fSel}");
 }
 `;
 };
 
 app.post('/gerar-stl-pro', async (req, res) => {
-    const { userId, designId } = req.body;
     try {
         const id = `final_${Date.now()}`;
         const scadPath = path.join(tempDir, `${id}.scad`);
@@ -69,12 +67,17 @@ app.post('/gerar-stl-pro', async (req, res) => {
 
         fs.writeFileSync(scadPath, gerarCodigoSCAD(req.body));
 
+        // Execução do OpenSCAD
         exec(`openscad -o "${stlPath}" "${scadPath}"`, async (error) => {
-            if (error) return res.status(500).json({ error: "Erro na renderização OpenSCAD" });
+            if (error) {
+                console.error("Erro OpenSCAD:", error);
+                return res.status(500).json({ error: "Erro na geração do ficheiro" });
+            }
+
             try {
                 const fileBuffer = fs.readFileSync(stlPath);
                 
-                // BUCKET CORRETO: makers_pro_stl_prod
+                // Gravação no bucket correto: makers_pro_stl_prod
                 const { error: upErr } = await supabase.storage
                     .from('makers_pro_stl_prod')
                     .upload(`final/${id}.stl`, fileBuffer, { contentType: 'model/stl', upsert: true });
@@ -83,15 +86,16 @@ app.post('/gerar-stl-pro', async (req, res) => {
 
                 const { data } = supabase.storage.from('makers_pro_stl_prod').getPublicUrl(`final/${id}.stl`);
                 res.json({ url: data.publicUrl });
+
             } catch (err) {
-                res.status(500).json({ error: "Erro no upload para o Supabase" });
+                res.status(500).json({ error: "Erro no Supabase" });
             } finally {
                 if (fs.existsSync(scadPath)) fs.unlinkSync(scadPath);
                 if (fs.existsSync(stlPath)) fs.unlinkSync(stlPath);
             }
         });
-    } catch (e) { res.status(500).json({ error: "Erro interno no servidor" }); }
+    } catch (e) { res.status(500).json({ error: "Erro interno" }); }
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => console.log("Servidor Docker Ativo no bucket makers_pro_stl_prod"));
+app.listen(PORT, '0.0.0.0', () => console.log("Servidor Docker a correr"));
