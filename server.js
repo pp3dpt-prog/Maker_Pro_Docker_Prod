@@ -7,7 +7,7 @@ const fs = require('fs');
 const app = express();
 
 // --- CONFIGURAÇÃO DE CORS ÚNICA E DINÂMICA ---
-a// 1. Remove qualquer outro app.use(cors) ou app.use que defina headers de origin
+// 1. Remove qualquer outro app.use(cors) ou app.use que defina headers de origin
 app.use((req, res, next) => {
     // Forçamos o domínio exato que aparece no teu erro
     res.header("Access-Control-Allow-Origin", "https://maker-pro-frontend.vercel.app");
