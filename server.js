@@ -24,7 +24,7 @@ const gerarCodigoSCAD = (d) => {
     const forma = (d.forma || "circulo").toLowerCase().trim();
     
     // No Docker, usamos caminhos relativos para evitar erros de disco
-    const templatePath = `templates/blank_${forma}.scad`;
+    const templatePath = `/app/templates/blank_${forma}.scad`;
 
     let fSel = "Liberation Sans:style=Bold";
     if (d.fonte === 'Bebas') fSel = "Bebas Neue:style=Regular";
@@ -32,11 +32,11 @@ const gerarCodigoSCAD = (d) => {
     if (d.fonte === 'Eindhoven') fSel = "Eindhoven:style=Regular";
     if (d.fonte === 'BADABB') fSel = "Badaboom BB:style=Regular";
 
-    return `
+return `
 include <${templatePath}>
 
 union() {
-    blank_${forma}(); 
+    blank_${forma}() 
     
     color("white")
     translate([${d.xPos || 0}, ${d.yPos || 0}, 2.9]) 
