@@ -14,7 +14,8 @@ RUN npm install
 
 # 3. Copiar todo o projeto (incluindo pastas templates e fonts)
 COPY . .
-
+RUN mkdir -p templates && chmod -R 755 templates
+RUN ls -l /app/templates
 # 4. Criar pastas e configurar permissões
 # temp e previews: Escrita total (777)
 # templates e fonts: Leitura (755)
