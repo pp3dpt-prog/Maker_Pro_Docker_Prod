@@ -17,14 +17,17 @@ app.use(express.json());
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
-// --- FUNÇÃO GERADORA COM INCLUDE ---
+// --- FUNÇÃO GERADORA COM INCLUDE (SEM INJEÇÃO) ---
 const gerarCodigoSCAD = (d) => {
     const nome = (d.nome_pet || "PET").replace(/"/g, "'");
     const tel = (d.telefone || "").replace(/"/g, "'");
+    
+    // 1. Garantir que a variável 'forma' é uma string simples para o include
     const forma = (d.base || d.forma || "circulo").toLowerCase().trim();
     
-    // Caminho absoluto para o include funcionar no Docker
-    const templatePath = '../templates/blank_${forma}.scad';
+    // 2. No Docker, o caminho mais seguro para o include é o absoluto
+    // O WORKDIR é /app, portanto o include deve apontar para /app/templates/
+    const includePath = `/../templates/blank_${forma}.scad`;
 
     let fSel = "Liberation Sans:style=Bold";
     if (d.fonte === 'Bebas') fSel = "Bebas Neue:style=Regular";
@@ -32,8 +35,9 @@ const gerarCodigoSCAD = (d) => {
     if (d.fonte === 'Eindhoven') fSel = "Eindhoven:style=Regular";
     if (d.fonte === 'BADABB') fSel = "Badaboom BB:style=Regular";
 
+    // O retorno usa template literals (crases) para injetar o valor de 'includePath' e 'forma'
     return `
-include <${templatePath}>
+include <${includePath}>
 
 union() {
     blank_${forma}(); 
