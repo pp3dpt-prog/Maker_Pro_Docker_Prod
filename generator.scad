@@ -2,7 +2,8 @@
 // O servidor substitui estes valores com os dados do frontend [cite: 2, 3]
 nome = "REX"; 
 telefone = "912345678";
-fonte = "Liberation Sans:style=Bold"; 
+// O nome da fonte tem de ser o nome INTERNO da fonte (ex: "Arial", "Roboto", "Pacifico")
+fonte_escolhida = "Liberation Sans:style=Bold"; 
 forma = "coracao"; // O teu frontend passa "coracao", "circulo" ou "osso"
 
 // Parâmetros da Frente (Nome) [cite: 2]

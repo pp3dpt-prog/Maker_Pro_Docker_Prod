@@ -1,28 +1,28 @@
 FROM node:20-bullseye-slim
 
-# Instalar OpenSCAD e configurar fontes
+# Instalar OpenSCAD e dependências de fontes
 RUN apt-get update && apt-get install -y \
     openscad \
     fontconfig \
-    fonts-liberation \
-    fonts-roboto \
-    && fc-cache -f -v \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copiar ficheiros de dependências e instalar
+# Copiar ficheiros do projeto
 COPY package*.json ./
 RUN npm install
-
-# Copiar o resto do código (incluindo a pasta templates)
 COPY . .
 
-# Criar pastas e dar permissões totais para o OpenSCAD escrever o STL
-RUN mkdir -p temp public/font_previews && chmod -R 777 temp
+# --- CONFIGURAÇÃO DE FONTES PERSONALIZADAS ---
+# 1. Criar pasta de fontes do sistema
+# 2. Copiar as tuas fontes .ttf para lá
+# 3. Atualizar a cache de fontes do Linux
+RUN mkdir -p /usr/share/fonts/truetype/custom && \
+    cp fonts/*.ttf /usr/share/fonts/truetype/custom/ 2>/dev/null || true && \
+    fc-cache -f -v
 
-# Porta padrão do Render
+# Criar pastas de trabalho e dar permissões
+RUN mkdir -p temp public/font_previews && chmod -R 777 temp public/font_previews
+
 EXPOSE 10000
-
 CMD ["npm", "start"]
