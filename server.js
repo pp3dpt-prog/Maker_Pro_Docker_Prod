@@ -17,15 +17,15 @@ app.use(express.json());
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
-// --- FUNÇÃO GERADORA COM INCLUDE (SEM INJEÇÃO) ---
+// --- FUNÇÃO GERADORA COM INCLUDE (CORRIGIDA) ---
 const gerarCodigoSCAD = (d) => {
     const nome = (d.nome_pet || "PET").replace(/"/g, "'");
     const tel = (d.telefone || "").replace(/"/g, "'");
     
-    // 1. Garantir que a variável 'forma' é uma string simples para o include
+    // 1. Garantir que a forma é tratada corretamente
     const forma = (d.base || d.forma || "circulo").toLowerCase().trim();
-
-    // caminho absoluto dentro do Docker
+    
+    // 2. Definir o caminho absoluto para o Docker
     const includePath = `/app/templates/blank_${forma}.scad`;
 
     let fSel = "Liberation Sans:style=Bold";
@@ -34,10 +34,8 @@ const gerarCodigoSCAD = (d) => {
     if (d.fonte === 'Eindhoven') fSel = "Eindhoven:style=Regular";
     if (d.fonte === 'BADABB') fSel = "Badaboom BB:style=Regular";
 
-    // O retorno usa template literals (crases) para injetar o valor de 'includePath' e 'forma'
-    return `
-const scad ='    
-include <${includePath}>
+    // O retorno deve construir a string do include SEM erros de interpolação
+    return `include <${includePath}>;
 
 union() {
     blank_${forma}(); 
@@ -52,8 +50,7 @@ union() {
     mirror([1, 0, 0])
     linear_extrude(height=1) 
     text("${tel}", size=${d.fontSizeN || 5}, halign="center", valign="center", font="${fSel}");
-}
-`;
+}`;
 };
 
 app.post('/gerar-stl-pro', async (req, res) => {
@@ -76,19 +73,24 @@ app.post('/gerar-stl-pro', async (req, res) => {
                 return res.status(500).json({ error: "Erro na renderização", details: stderr });
             }
 
-            const fileBuffer = fs.readFileSync(stlPath);
-            const { error: upErr } = await supabase.storage
-                .from('makers_pro_stl_prod')
-                .upload(`final/${id}.stl`, fileBuffer, { contentType: 'model/stl', upsert: true });
+            try {
+                const fileBuffer = fs.readFileSync(stlPath);
+                const { error: upErr } = await supabase.storage
+                    .from('makers_pro_stl_prod')
+                    .upload(`final/${id}.stl`, fileBuffer, { contentType: 'model/stl', upsert: true });
 
-            if (upErr) throw upErr;
+                if (upErr) throw upErr;
 
-            const { data } = supabase.storage.from('makers_pro_stl_prod').getPublicUrl(`final/${id}.stl`);
-            
-            if (fs.existsSync(scadPath)) fs.unlinkSync(scadPath);
-            if (fs.existsSync(stlPath)) fs.unlinkSync(stlPath);
+                const { data } = supabase.storage.from('makers_pro_stl_prod').getPublicUrl(`final/${id}.stl`);
+                
+                if (fs.existsSync(scadPath)) fs.unlinkSync(scadPath);
+                if (fs.existsSync(stlPath)) fs.unlinkSync(stlPath);
 
-            res.json({ url: data.publicUrl });
+                res.json({ url: data.publicUrl });
+            } catch (errSupabase) {
+                console.error("Erro Supabase:", errSupabase);
+                res.status(500).json({ error: "Erro no upload" });
+            }
         });
     } catch (e) {
         console.error("Erro Interno:", e);
