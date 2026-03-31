@@ -17,28 +17,14 @@ app.use(express.json());
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
+// --- FUNÇÃO GERADORA COM INCLUDE ---
 const gerarCodigoSCAD = (d) => {
     const nome = (d.nome_pet || "PET").replace(/"/g, "'");
     const tel = (d.telefone || "").replace(/"/g, "'");
     const forma = (d.base || d.forma || "circulo").toLowerCase().trim();
     
-    // Caminho absoluto para evitar erros no Docker 
-    const templatePath = path.join(__dirname, 'templates', `blank_${forma}.scad`);
-    let codigoInjetado = "";
-
-    try {
-        if (fs.existsSync(templatePath)) {
-            codigoInjetado = fs.readFileSync(templatePath, 'utf8');
-            console.log(`✅ Template ${forma} carregado.`);
-        } else {
-            console.error(`❌ Ficheiro não encontrado: ${templatePath}`);
-            // Placa de emergência para não falhar o STL 
-            codigoInjetado = `module blank_${forma}() { cube([30,20,2], center=true); }`;
-        }
-    } catch (err) {
-        console.error("❌ Erro na leitura:", err);
-        codigoInjetado = `module blank_${forma}() { sphere(r=10); }`;
-    }
+    // Caminho absoluto para o include funcionar no Docker
+    const templatePath = '../templates/blank_${forma}.scad`;
 
     let fSel = "Liberation Sans:style=Bold";
     if (d.fonte === 'Bebas') fSel = "Bebas Neue:style=Regular";
@@ -47,7 +33,7 @@ const gerarCodigoSCAD = (d) => {
     if (d.fonte === 'BADABB') fSel = "Badaboom BB:style=Regular";
 
     return `
-${codigoInjetado}
+include <${templatePath}>
 
 union() {
     blank_${forma}(); 
@@ -64,7 +50,7 @@ union() {
     text("${tel}", size=${d.fontSizeN || 5}, halign="center", valign="center", font="${fSel}");
 }
 `;
-}; // 
+};
 
 app.post('/gerar-stl-pro', async (req, res) => {
     const tempDir = path.join(__dirname, 'temp');
@@ -79,10 +65,10 @@ app.post('/gerar-stl-pro', async (req, res) => {
         fs.writeFileSync(scadPath, codigo);
 
         exec(`openscad -o "${stlPath}" "${scadPath}"`, async (error, stdout, stderr) => {
-            if (stderr) console.log("OPENSCAD LOG:", stderr); 
+            if (stderr) console.log("DIAGNÓSTICO OPENSCAD:", stderr); 
 
             if (error) {
-                console.error("ERRO RENDER:", stderr);
+                console.error("ERRO CRÍTICO:", stderr);
                 return res.status(500).json({ error: "Erro na renderização", details: stderr });
             }
 
@@ -95,14 +81,14 @@ app.post('/gerar-stl-pro', async (req, res) => {
 
             const { data } = supabase.storage.from('makers_pro_stl_prod').getPublicUrl(`final/${id}.stl`);
             
-            fs.unlink(scadPath, () => {});
-            fs.unlink(stlPath, () => {});
+            if (fs.existsSync(scadPath)) fs.unlinkSync(scadPath);
+            if (fs.existsSync(stlPath)) fs.unlinkSync(stlPath);
 
             res.json({ url: data.publicUrl });
         });
     } catch (e) {
-        console.error("ERRO SERVER:", e);
-        res.status(500).json({ error: "Erro interno" });
+        console.error("Erro Interno:", e);
+        res.status(500).json({ error: "Erro interno no servidor" });
     }
 });
 
