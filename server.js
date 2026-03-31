@@ -24,7 +24,7 @@ const gerarCodigoSCAD = (d) => {
     const forma = (d.base || d.forma || "circulo").toLowerCase().trim();
     
     // Caminho absoluto para o include funcionar no Docker
-    const templatePath = '../templates/blank_${forma}.scad`;
+    const templatePath = '../templates/blank_${forma}.scad';
 
     let fSel = "Liberation Sans:style=Bold";
     if (d.fonte === 'Bebas') fSel = "Bebas Neue:style=Regular";
