@@ -3,13 +3,12 @@ const { exec } = require('child_process');
 const { createClient } = require('@supabase/supabase-js');
 const path = require('path');
 const fs = require('fs');
-const cors = require('cors'); // Vamos usar o pacote oficial para garantir
+const cors = require('cors');
 
 const app = express();
 
-// 1. CONFIGURAÇÃO DE CORS - DEVE SER A PRIMEIRA COISA NO CÓDIGO
 app.use(cors({
-    origin: '*', // Permite todas as origens temporariamente para teste, ou usa a tua URL da Vercel
+    origin: '*',
     methods: ['GET', 'POST', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
@@ -18,14 +17,14 @@ app.use(express.json());
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
-// ... (resto do código anterior)
-
+// --- FUNÇÃO GERADORA CORRIGIDA ---
 const gerarCodigoSCAD = (d) => {
     const nome = (d.nome_pet || "").replace(/"/g, "'");
     const tel = (d.telefone || "").replace(/"/g, "'");
     const forma = (d.forma || "circulo").toLowerCase().trim();
     
-    const templatePath = path.resolve(__dirname, 'templates', `blank_${forma}.scad`).replace(/\\/g, '/');
+    // No Docker, usamos caminhos relativos para evitar erros de disco
+    const templatePath = `templates/blank_${forma}.scad`;
 
     let fSel = "Liberation Sans:style=Bold";
     if (d.fonte === 'Bebas') fSel = "Bebas Neue:style=Regular";
@@ -51,7 +50,7 @@ union() {
     text("${tel}", size=${d.fontSizeN || 5}, halign="center", valign="center", font="${fSel}");
 }
 `;
-}; // <--- ESTA CHAVE ESTAVA EM FALTA
+}; // Chave de fecho da função adicionada para resolver o SyntaxError
 
 app.post('/gerar-stl-pro', async (req, res) => {
     const tempDir = path.join(__dirname, 'temp');
@@ -65,11 +64,14 @@ app.post('/gerar-stl-pro', async (req, res) => {
         const codigo = gerarCodigoSCAD(req.body);
         fs.writeFileSync(scadPath, codigo);
 
-        // Execução com captura de stderr para diagnóstico
+        // Capturamos stderr para diagnosticar por que a peça não aparece
         exec(`openscad -o "${stlPath}" "${scadPath}"`, async (error, stdout, stderr) => {
+            // ESTA LINHA VAI MOSTRAR O ERRO REAL NOS LOGS
+            if (stderr) console.log("DIAGNÓSTICO OPENSCAD:", stderr); 
+
             if (error) {
-                console.error("Erro OpenSCAD:", stderr);
-                return res.status(500).json({ error: "Erro na renderização 3D", details: stderr });
+                console.error("ERRO CRÍTICO:", stderr);
+                return res.status(500).json({ error: "Erro na renderização", details: stderr });
             }
 
             const fileBuffer = fs.readFileSync(stlPath);
@@ -81,6 +83,7 @@ app.post('/gerar-stl-pro', async (req, res) => {
 
             const { data } = supabase.storage.from('makers_pro_stl_prod').getPublicUrl(`final/${id}.stl`);
             
+            // Limpeza de ficheiros temporários
             if (fs.existsSync(scadPath)) fs.unlinkSync(scadPath);
             if (fs.existsSync(stlPath)) fs.unlinkSync(stlPath);
 
