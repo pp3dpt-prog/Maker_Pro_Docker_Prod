@@ -23,36 +23,33 @@ const gerarCodigoSCAD = (d) => {
     const tel = (d.telefone || "").replace(/"/g, "'");
     const forma = (d.forma || "circulo").toLowerCase().trim();
     
-    // Caminho para o ficheiro .scad da forma (ex: templates/blank_circulo.scad)
-    const templatePath = path.resolve(__dirname, 'templates', `blank_${forma}.scad`).replace(/\\/g, '/');
+    // MUDANÇA AQUI: Usa caminho relativo para o OpenSCAD no Docker
+    const templatePath = `templates/blank_${forma}.scad`; 
 
     let fSel = "Liberation Sans:style=Bold";
-    if (d.fonte === 'Bebas') fSel = "Bebas Neue:style=Regular";
-    if (d.fonte === 'Playfair') fSel = "Playfair Display:style=Bold";
-    if (d.fonte === 'Eindhoven') fSel = "Eindhoven:style=Regular";
-    if (d.fonte === 'BADABB') fSel = "Badaboom BB:style=Regular";
+    // ... tuas lógicas de fonte ...
 
-    // "include" é melhor que "use" se quiseres garantir que as variáveis passem
     return `
 include <${templatePath}>
 
-union() {
-    // Chamada do módulo (o ficheiro blank_circulo.scad deve conter: module blank_circulo() { ... })
+// 1. Usamos difference para o verso ESCAVAR a peça
+difference() {
+    // Chamada do módulo da base
     blank_${forma}(); 
     
-    // Texto Frente
-    color("white")
-    translate([${d.xPos || 0}, ${d.yPos || 0}, 2.9]) 
-    linear_extrude(height=1) 
-    text("${nome}", size=${d.fontSize || 7}, halign="center", valign="center", font="${fSel}");
-
-    // Texto Verso
-    color("white")
-    translate([${-(d.xPosN || 0)}, ${d.yPosN || 0}, -0.5]) 
+    // Texto Verso (Telefone) - ESCAVADO
+    // O translate em Z deve ser pequeno (ex: 0.5) para entrar na peça a partir do fundo
+    translate([${-(d.xPosN || 0)}, ${d.yPosN || 0}, 0.5]) 
     mirror([1, 0, 0])
-    linear_extrude(height=1) 
+    linear_extrude(height=1.1) 
     text("${tel}", size=${d.fontSizeN || 5}, halign="center", valign="center", font="${fSel}");
 }
+
+// 2. Texto Frente - RELEVO (Fora do difference)
+color("white")
+translate([${d.xPos || 0}, ${d.yPos || 0}, 2.9]) 
+linear_extrude(height=1) 
+text("${nome}", size=${d.fontSize || 7}, halign="center", valign="center", font="${fSel}");
 `;
 };
 
@@ -60,7 +57,12 @@ app.post('/gerar-stl-pro', async (req, res) => {
     const tempDir = path.join(__dirname, 'temp');
     if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
 
-    const id = `final_${Date.now()}`;
+    exec(`openscad -o "${stlPath}" "${scadPath}"`, (error, stdout, stderr) => {
+    if (error) {
+        console.error("Erro OpenSCAD (Exec):", error);
+        console.error("Saída de Erro (Stderr):", stderr); // ESTA LINHA É ESSENCIAL
+        return res.status(500).json({ error: "Erro na renderização 3D", details: stderr });
+    }
     const scadPath = path.join(tempDir, `${id}.scad`);
     const stlPath = path.join(tempDir, `${id}.stl`);
 
