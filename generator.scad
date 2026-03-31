@@ -20,13 +20,13 @@ z_superficie = 3.0;
 // --- 2. LÓGICA DE SELEÇÃO DA BASE ---
 // No Docker/Produção usamos caminhos relativos
 if (forma == "coracao") {
-    include <templates/blank_coracao.scad>;
+    include <app/templates/blank_coracao.scad>;
     renderizar_peca();
 } else if (forma == "circulo") {
-    include <templates/blank_circulo.scad>;
+    include <app/templates/blank_circulo.scad>;
     renderizar_peca();
 } else if (forma == "osso") {
-    include <templates/blank_osso.scad>;
+    include <app/templates/blank_osso.scad>;
     renderizar_peca();
 }
 
