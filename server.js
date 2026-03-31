@@ -27,7 +27,7 @@ const gerarCodigoSCAD = (d) => {
     
     // 2. No Docker, o caminho mais seguro para o include é o absoluto
     // O WORKDIR é /app, portanto o include deve apontar para /app/templates/
-    const includePath = `/../templates/blank_${forma}.scad`;
+    const includePath = `templates/blank_${forma}.scad`;
 
     let fSel = "Liberation Sans:style=Bold";
     if (d.fonte === 'Bebas') fSel = "Bebas Neue:style=Regular";
