@@ -6,97 +6,86 @@ const fs = require('fs');
 const cors = require('cors');
 
 const app = express();
-
-app.use(cors({
-    origin: '*',
-    methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
-}));
-
+app.use(cors({ origin: '*', methods: ['GET', 'POST', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] }));
 app.use(express.json());
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
-// --- FUNÇÃO GERADORA COM INCLUDE (CORRIGIDA) ---
-const gerarCodigoSCAD = (d) => {
-    const nome = (d.nome_pet || "PET").replace(/"/g, "'");
-    const tel = (d.telefone || "").replace(/"/g, "'");
-    
-    // 1. Garantir que a forma é tratada corretamente
-    const forma = (d.base || d.forma || "circulo").toLowerCase().trim();
-    
-    // 2. Definir o caminho absoluto para o Docker
-    const includePath = `/app/templates/blank_${forma}.scad`;
-
-    let fSel = "Liberation Sans:style=Bold";
-    if (d.fonte === 'Bebas') fSel = "Bebas Neue:style=Regular";
-    if (d.fonte === 'Playfair') fSel = "Playfair Display:style=Bold";
-    if (d.fonte === 'Eindhoven') fSel = "Eindhoven:style=Regular";
-    if (d.fonte === 'BADABB') fSel = "Badaboom BB:style=Regular";
-
-    // O retorno deve construir a string do include SEM erros de interpolação
-    return `include <${includePath}>;
-
-union() {
-    blank_${forma}(); 
-    
-    color("white")
-    translate([${d.xPos || 0}, ${d.yPos || 0}, 2.9]) 
-    linear_extrude(height=1) 
-    text("${nome}", size=${d.fontSize || 7}, halign="center", valign="center", font="${fSel}");
-
-    color("white")
-    translate([${-(d.xPosN || 0)}, ${d.yPosN || 0}, -0.5]) 
-    mirror([1, 0, 0])
-    linear_extrude(height=1) 
-    text("${tel}", size=${d.fontSizeN || 5}, halign="center", valign="center", font="${fSel}");
-}`;
-};
-
 app.post('/gerar-stl-pro', async (req, res) => {
-    const tempDir = path.join(__dirname, 'temp');
-    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
-
-    const id = `final_${Date.now()}`;
-    const scadPath = path.join(tempDir, `${id}.scad`);
-    const stlPath = path.join(tempDir, `${id}.stl`);
+    const d = req.body;
+    const designId = d.id || d.forma; 
 
     try {
-        const codigo = gerarCodigoSCAD(req.body);
-        fs.writeFileSync(scadPath, codigo);
+        // 1. Procurar o design e o seu esquema de UI na tabela
+        const { data: design, error } = await supabase
+            .from('prod_designs')
+            .select('scad_template, ui_schema, default_size_nome')
+            .eq('id', designId)
+            .single();
 
-        exec(`openscad -o "${stlPath}" "${scadPath}"`, async (error, stdout, stderr) => {
-            if (stderr) console.log("DIAGNÓSTICO OPENSCAD:", stderr); 
+        if (error || !design) {
+            return res.status(404).json({ error: "Design não encontrado" });
+        }
 
-            if (error) {
-                console.error("ERRO CRÍTICO:", stderr);
-                return res.status(500).json({ error: "Erro na renderização", details: stderr });
-            }
-
-            try {
-                const fileBuffer = fs.readFileSync(stlPath);
-                const { error: upErr } = await supabase.storage
-                    .from('makers_pro_stl_prod')
-                    .upload(`final/${id}.stl`, fileBuffer, { contentType: 'model/stl', upsert: true });
-
-                if (upErr) throw upErr;
-
-                const { data } = supabase.storage.from('makers_pro_stl_prod').getPublicUrl(`final/${id}.stl`);
-                
-                if (fs.existsSync(scadPath)) fs.unlinkSync(scadPath);
-                if (fs.existsSync(stlPath)) fs.unlinkSync(stlPath);
-
-                res.json({ url: data.publicUrl });
-            } catch (errSupabase) {
-                console.error("Erro Supabase:", errSupabase);
-                res.status(500).json({ error: "Erro no upload" });
+        // 2. Mapear dinamicamente as variáveis baseadas no ui_schema
+        // O ui_schema diz-nos que campos esperar: nome_pet, telefone, etc.
+        let variaveisSCAD = "";
+        const campos = design.ui_schema || [];
+        
+        campos.forEach(campo => {
+            const valorUser = d[campo.name] || campo.default;
+            if (campo.type === 'text' || campo.type === 'font-select') {
+                // Injeta como string
+                variaveisSCAD += `${campo.name} = "${valorUser.toString().replace(/"/g, "'")}";\n`;
+            } else {
+                // Injeta como número
+                variaveisSCAD += `${campo.name} = ${valorUser};\n`;
             }
         });
+
+        // Adiciona a escala (usando o valor do user ou o default da tabela)
+        const escala = d.escala || design.default_size_nome || 30;
+        variaveisSCAD += `escala = ${escala};\n`;
+
+        // 3. Construção do código final
+        const codigoFinal = `
+$fn=64;
+${variaveisSCAD}
+${design.scad_template}
+`;
+
+        // 4. Renderização e Upload
+        const id = `final_${Date.now()}`;
+        const tempDir = path.join(__dirname, 'temp');
+        if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
+        
+        const scadPath = path.join(tempDir, `${id}.scad`);
+        const stlPath = path.join(tempDir, `${id}.stl`);
+        
+        fs.writeFileSync(scadPath, codigoFinal);
+
+        exec(`openscad -o "${stlPath}" "${scadPath}"`, async (err, stdout, stderr) => {
+            if (err) {
+                console.error("Erro OpenSCAD:", stderr);
+                return res.status(500).json({ error: "Erro na renderização" });
+            }
+
+            const fileBuffer = fs.readFileSync(stlPath);
+            await supabase.storage.from('makers_pro_stl_prod').upload(`final/${id}.stl`, fileBuffer);
+            
+            const { data: urlData } = supabase.storage.from('makers_pro_stl_prod').getPublicUrl(`final/${id}.stl`);
+            
+            fs.unlink(scadPath, () => {});
+            fs.unlink(stlPath, () => {});
+
+            res.json({ url: urlData.publicUrl });
+        });
+
     } catch (e) {
-        console.error("Erro Interno:", e);
-        res.status(500).json({ error: "Erro interno no servidor" });
+        console.error("Erro Geral:", e);
+        res.status(500).json({ error: "Erro interno" });
     }
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Docker pronto na porta ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Motor ativo na porta ${PORT}`));
