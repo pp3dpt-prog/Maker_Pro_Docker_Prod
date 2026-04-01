@@ -4,6 +4,12 @@ const { createClient } = require('@supabase/supabase-js');
 const path = require('path');
 const fs = require('fs');
 const cors = require('cors');
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY; // <--- USA ESTA!
+
+if (!supabaseServiceKey) {
+    console.error("ERRO: SUPABASE_SERVICE_ROLE_KEY não definida nas variáveis de ambiente!");
+}
 
 const app = express();
 app.use(cors({ origin: '*', methods: ['GET', 'POST', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] }));
