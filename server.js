@@ -4,114 +4,77 @@ const { createClient } = require('@supabase/supabase-js');
 const path = require('path');
 const fs = require('fs');
 const cors = require('cors');
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY; // <--- USA ESTA!
-
-if (!supabaseServiceKey) {
-    console.error("ERRO: SUPABASE_SERVICE_ROLE_KEY não definida nas variáveis de ambiente!");
-}
 
 const app = express();
-app.use(cors({ origin: '*', methods: ['GET', 'POST', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] }));
+
+// Configuração de CORS para permitir pedidos do Vercel
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 app.use(express.json());
 
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+// Inicialização do Supabase com a Service Role Key para bypassar RLS
+const supabase = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
 app.post('/gerar-stl-pro', async (req, res) => {
     const d = req.body;
-    // O ID deve corresponder ao UUID na tabela prod_designs
+    
+    // O ID deve ser o slug da tabela (ex: "tag-coracao") enviado pelo frontend
     const designId = d.id || d.forma; 
 
+    console.log(`🚀 A processar pedido para o design: ${designId}`);
+
     try {
-        // 1. Procurar o design e as suas configurações na tabela
-        const { data: design, error } = await supabase
+        // 1. Procura o design na tabela prod_designs pelo ID (slug)
+        const { data: design, error: dbError } = await supabase
             .from('prod_designs')
             .select('scad_template, ui_schema, default_size_nome')
             .eq('id', designId)
-            .single();
+            .maybeSingle();
 
-        if (error || !design) {
-            console.error("❌ Design não encontrado:", error);
-            return res.status(404).json({ error: "Design não encontrado na base de dados" });
+        if (dbError) {
+            console.error("❌ Erro na consulta à DB:", dbError);
+            return res.status(500).json({ error: "Erro ao consultar base de dados", details: dbError.message });
         }
 
-        // 2. Mapear variáveis dinamicamente usando o ui_schema
-        let variaveisInjetadas = "";
+        if (!design) {
+            console.error(`❌ Design '${designId}' não encontrado.`);
+            return res.status(404).json({ error: `O modelo '${designId}' não existe na base de dados.` });
+        }
+
+        // 2. Construção dinâmica das variáveis baseada no ui_schema
+        let variaveisSCAD = "";
         const esquema = design.ui_schema || [];
         
         esquema.forEach(campo => {
-            // Obtém o valor enviado pelo utilizador ou usa o padrão do esquema
+            // Usa o valor enviado pelo utilizador, senão usa o default do esquema
             const valorUser = d[campo.name] !== undefined ? d[campo.name] : campo.default;
             
             if (campo.type === 'text' || campo.type === 'font-select') {
-                // Injeção segura de strings para o OpenSCAD
+                // Limpa aspas para evitar quebra de sintaxe no OpenSCAD
                 const stringSegura = valorUser.toString().replace(/"/g, "'");
-                variaveisInjetadas += `${campo.name} = "${stringSegura}";\n`;
+                variaveisSCAD += `${campo.name} = "${stringSegura}";\n`;
             } else {
-                // Injeção de valores numéricos
-                variaveisInjetadas += `${campo.name} = ${valorUser};\n`;
+                variaveisSCAD += `${campo.name} = ${valorUser};\n`;
             }
         });
 
-        // Adiciona a variável 'escala' que o teu SCAD utiliza
+        // Define a variável 'escala' (prioridade: envio do user > default da tabela > 30)
         const escalaBase = d.escala || design.default_size_nome || 30;
-        variaveisInjetadas += `escala = ${escalaBase};\n`;
+        variaveisSCAD += `escala = ${escalaBase};\n`;
 
-        // 3. Montar o código SCAD final (Variáveis + Template da DB)
+        // 3. Montagem do código SCAD final
         const codigoFinal = `
 $fn=64;
-// --- Variáveis Injetadas pelo Servidor ---
-${variaveisInjetadas}
+// --- Variáveis Injetadas ---
+${variaveisSCAD}
 
-// --- Template Base do Design ---
+// --- Código do Template ---
 ${design.scad_template}
 `;
-
-        // 4. Processamento da Renderização
-        const idUnico = `final_${Date.now()}`;
-        const tempDir = path.join(__dirname, 'temp');
-        if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
-        
-        const scadPath = path.join(tempDir, `${idUnico}.scad`);
-        const stlPath = path.join(tempDir, `${idUnico}.stl`);
-        
-        fs.writeFileSync(scadPath, codigoFinal);
-
-        exec(`openscad -o "${stlPath}" "${scadPath}"`, async (err, stdout, stderr) => {
-            if (err) {
-                console.error("ERRO OPENSCAD:", stderr);
-                return res.status(500).json({ error: "Falha na renderização 3D", details: stderr });
-            }
-
-            try {
-                const fileBuffer = fs.readFileSync(stlPath);
-                // Upload para o bucket final
-                const { error: upErr } = await supabase.storage
-                    .from('makers_pro_stl_prod')
-                    .upload(`final/${idUnico}.stl`, fileBuffer, { contentType: 'model/stl', upsert: true });
-
-                if (upErr) throw upErr;
-
-                const { data: urlPublica } = supabase.storage
-                    .from('makers_pro_stl_prod')
-                    .getPublicUrl(`final/${idUnico}.stl`);
-                
-                // Limpeza assíncrona
-                fs.unlink(scadPath, () => {});
-                fs.unlink(stlPath, () => {});
-
-                res.json({ url: urlPublica.publicUrl });
-            } catch (storageError) {
-                console.error("ERRO STORAGE:", storageError);
-                res.status(500).json({ error: "Erro ao guardar o modelo gerado" });
-            }
-        });
-
-    } catch (e) {
-        console.error("ERRO SERVIDOR:", e);
-        res.status(500).json({ error: "Erro interno no processamento" });
-    }
-});
-
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Motor Maker Pro pronto na porta ${PORT}`));
