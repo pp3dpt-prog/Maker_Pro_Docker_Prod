@@ -7,7 +7,6 @@ const cors = require('cors');
 
 const app = express();
 
-// Configuração de CORS
 app.use(cors({
     origin: '*',
     methods: ['GET', 'POST', 'OPTIONS'],
@@ -16,7 +15,6 @@ app.use(cors({
 
 app.use(express.json());
 
-// Inicialização do Supabase
 const supabase = createClient(
     process.env.SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -29,7 +27,6 @@ app.post('/gerar-stl-pro', async (req, res) => {
     console.log(`🚀 A processar design: ${designId}`);
 
     try {
-        // 1. Procura o design na tabela
         const { data: design, error: dbError } = await supabase
             .from('prod_designs')
             .select('scad_template, ui_schema, default_size_nome')
@@ -39,27 +36,37 @@ app.post('/gerar-stl-pro', async (req, res) => {
         if (dbError) throw dbError;
         if (!design) return res.status(404).json({ error: "Design não encontrado" });
 
-        // 2. Montagem das variáveis
+        // --- MAPEAMENTO INTELIGENTE (A SOLUÇÃO) ---
+        // Aqui garantimos que o OpenSCAD recebe nomes consistentes
+        const nomesPadrao = {
+            nome: d.nome || d.nome_pet || "Sem Nome",
+            telefone: d.telefone || d.numero || "",
+            fontSize: d.fontSize || d.tamanho || 7,
+            fontSizeN: d.fontSizeN || d.tamanho_verso || 6.5,
+            xPos: d.xPos || 0,
+            yPos: d.yPos || 0,
+            xPosN: d.xPosN || 0,
+            yPosN: d.yPosN || 0,
+            fonte: d.fonte || d.fonte_escolhida || "Liberation Sans"
+        };
+
         let variaveisSCAD = "";
-        const esquema = design.ui_schema || [];
-        
-        esquema.forEach(campo => {
-            const valorUser = d[campo.name] !== undefined ? d[campo.name] : campo.default;
-            if (campo.type === 'text' || campo.type === 'font-select') {
-                const stringSegura = valorUser.toString().replace(/"/g, "'");
-                variaveisSCAD += `${campo.name} = "${stringSegura}";\n`;
+        Object.entries(nomesPadrao).forEach(([key, value]) => {
+            if (typeof value === 'string') {
+                const stringSegura = value.replace(/"/g, "'");
+                variaveisSCAD += `${key} = "${stringSegura}";\n`;
             } else {
-                variaveisSCAD += `${campo.name} = ${valorUser};\n`;
+                variaveisSCAD += `${key} = ${value};\n`;
             }
         });
 
+        // Adiciona a escala base se necessário
         const escalaBase = d.escala || design.default_size_nome || 30;
         variaveisSCAD += `escala = ${escalaBase};\n`;
 
-        // 3. Código Final
+        // Código Final: Injetamos as variáveis ANTES do template
         const codigoFinal = `$fn=64;\n${variaveisSCAD}\n${design.scad_template}`;
 
-        // 4. Ficheiros Temporários
         const tempDir = path.join(__dirname, 'temp');
         if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
 
@@ -69,7 +76,6 @@ app.post('/gerar-stl-pro', async (req, res) => {
 
         fs.writeFileSync(scadPath, codigoFinal);
 
-        // 5. Execução OpenSCAD
         exec(`openscad -o "${stlPath}" "${scadPath}"`, async (error, stdout, stderr) => {
             if (error) {
                 console.error("Erro OpenSCAD:", stderr);
@@ -88,7 +94,6 @@ app.post('/gerar-stl-pro', async (req, res) => {
                     .from('makers_pro_stl_prod')
                     .getPublicUrl(`final/${fileId}.stl`);
 
-                // Limpeza
                 fs.unlink(scadPath, () => {});
                 fs.unlink(stlPath, () => {});
 
