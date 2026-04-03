@@ -38,20 +38,18 @@ app.post('/gerar-stl-pro', async (req, res) => {
         if (!design) return res.status(404).json({ error: "Design não encontrado" });
 
         // --- 1. MAPEAMENTO DE FONTES ---
+        // No server.js, atualiza para os nomes REAIS que o OpenSCAD reconhece após o 'use'
         const fontesPathMap = {
-            'Bebas': 'fonts/BebasNeue-Regular.ttf',
-            'Playfair': 'fonts/PlayfairDisplay-Bold.ttf',
-            'Eindhoven': 'fonts/Eindhoven.ttf',
-            'BADABB': 'fonts/BADABB.ttf',
-            'Open Sans': 'fonts/OpenSans-Bold.ttf',
-            'Liberation Sans': 'fonts/LiberationSans-Bold.ttf'
+            'Bebas': { file: 'fonts/BebasNeue-Regular.ttf', name: 'Bebas Neue' },
+            'Playfair': { file: 'fonts/PlayfairDisplay-Bold.ttf', name: 'Playfair Display' },
+            'Eindhoven': { file: 'fonts/Eindhoven.ttf', name: 'Eindhoven' },
+            'BADABB': { file: 'fonts/BADABB.ttf', name: 'BadaBoom BB' },
+            'Open Sans': { file: 'fonts/OpenSans-Bold.ttf', name: 'Open Sans' }
         };
 
-        const nomeFonteOriginal = d.fonte || d.fonte_escolhida || "Liberation Sans";
-        const ficheiroFonte = fontesPathMap[nomeFonteOriginal] || 'fonts/OpenSans-Bold.ttf';
-        // No teu server.js
-        const caminhoAbsolutoFonte = path.resolve(__dirname, ficheiroFonte).replace(/\\/g, '/');
-        const comandoFonteSCAD = `use <${caminhoAbsolutoFonte}>\n`;
+        const selecao = fontesPathMap[d.fonte] || { file: 'fonts/OpenSans-Bold.ttf', name: 'Open Sans' };
+        const caminhoAbsolutoFonte = path.join(__dirname, selecao.file);
+        const nomeRealFonte = selecao.name; // <--- Este é o segredo
 
         // --- 2. MAPEAMENTO DE VARIÁVEIS (CORRIGIDO PARA O TEU UI_SCHEMA) ---
         // Priorizamos 'nome_pet' que é o que está no teu JSON de schema
@@ -64,7 +62,7 @@ app.post('/gerar-stl-pro', async (req, res) => {
             yPos: d.yPos || 0,
             xPosN: d.xPosN || 0,
             yPosN: d.yPosN || 0,
-            fonte: nomeFonteOriginal 
+            fonte: nomeRealFonte 
         };
 
         let variaveisSCAD = "";
