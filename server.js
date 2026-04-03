@@ -46,28 +46,32 @@ app.post('/gerar-stl-pro', async (req, res) => {
             comandoFonteSCAD = `use <${caminhoAbsolutoFonte}>\n`;
         }
 
-        // --- 2. VARIÁVEIS ---
-        const nomesPadrao = {
+        // --- 2. VARIÁVEIS DINÂMICAS (Tags + Caixas + Futuros) ---
+        let variaveisSCAD = "";
+        
+        // 1. Injeta os valores padrão de segurança para as Tags (para não quebrar o que já existe)
+        const defaults = {
             nome: (d.nome_pet || d.nome || "NOME").toUpperCase(),
             telefone: d.telefone || "",
+            fonte: selecao.name,
             fontSize: d.fontSize || 7,
-            fontSizeN: d.fontSizeN || 5,
             xPos: d.xPos || 0,
-            yPos: d.yPos || 0,
-            xPosN: d.xPosN || 0,
-            yPosN: d.yPosN || 0,
-            fonte: selecao.name 
+            yPos: d.yPos || 0
         };
 
-        let variaveisSCAD = "";
-        Object.entries(nomesPadrao).forEach(([key, value]) => {
+        // 2. Varre TUDO o que vem do frontend (inclui largura, altura, espessura da caixa)
+        const todasAsVars = { ...defaults, ...d };
+
+        Object.entries(todasAsVars).forEach(([key, value]) => {
+            // Ignora campos de sistema
+            if (['id', 'forma', 'escala'].includes(key)) return;
+
             if (typeof value === 'string') {
                 variaveisSCAD += `${key} = "${value.replace(/"/g, "'")}";\n`;
-            } else {
+            } else if (typeof value === 'number') {
                 variaveisSCAD += `${key} = ${value};\n`;
             }
         });
-
         // --- 3. MONTAGEM OTIMIZADA ---
         // Reduzimos o $fn drasticamente para 24 para garantir que o Render aguenta a renderização
         const codigoFinal = `${comandoFonteSCAD}\n$fn=24;\n${variaveisSCAD}\n${design.scad_template}`;
