@@ -25,7 +25,6 @@ app.post('/gerar-stl-pro', async (req, res) => {
     const designId = d.id || d.forma; 
 
     console.log(`🚀 A processar design: ${designId}`);
-    console.log(`📦 Dados recebidos:`, d);
 
     try {
         const { data: design, error: dbError } = await supabase
@@ -34,25 +33,32 @@ app.post('/gerar-stl-pro', async (req, res) => {
             .eq('id', designId)
             .maybeSingle();
 
-        if (dbError) throw dbError;
-        if (!design) return res.status(404).json({ error: "Design não encontrado" });
+        if (dbError || !design) {
+            return res.status(404).json({ error: "Design não encontrado ou erro no banco" });
+        }
 
-        // --- 1. MAPEAMENTO DE FONTES ---
-        // No server.js, atualiza para os nomes REAIS que o OpenSCAD reconhece após o 'use'
+        // --- 1. MAPEAMENTO DE FONTES (CORREÇÃO DE NOMES REAIS) ---
+        // O 'name' deve ser o nome interno da fonte que o OpenSCAD lê
         const fontesPathMap = {
             'Bebas': { file: 'fonts/BebasNeue-Regular.ttf', name: 'Bebas Neue' },
             'Playfair': { file: 'fonts/PlayfairDisplay-Bold.ttf', name: 'Playfair Display' },
             'Eindhoven': { file: 'fonts/Eindhoven.ttf', name: 'Eindhoven' },
             'BADABB': { file: 'fonts/BADABB.ttf', name: 'BadaBoom BB' },
-            'Open Sans': { file: 'fonts/OpenSans-Bold.ttf', name: 'Open Sans' }
+            'Open Sans': { file: 'fonts/OpenSans-Bold.ttf', name: 'Open Sans' },
+            'Liberation Sans': { file: 'fonts/LiberationSans-Bold.ttf', name: 'Liberation Sans' }
         };
 
-        const selecao = fontesPathMap[d.fonte] || { file: 'fonts/OpenSans-Bold.ttf', name: 'Open Sans' };
+        const selecao = fontesPathMap[d.fonte] || fontesPathMap['Open Sans'];
         const caminhoAbsolutoFonte = path.join(__dirname, selecao.file);
-        const nomeRealFonte = selecao.name; // <--- Este é o segredo
+        
+        // Verifica se o ficheiro de fonte existe mesmo antes de continuar
+        if (!fs.existsSync(caminhoAbsolutoFonte)) {
+            console.error(`❌ Fonte não encontrada: ${caminhoAbsolutoFonte}`);
+        }
 
-        // --- 2. MAPEAMENTO DE VARIÁVEIS (CORRIGIDO PARA O TEU UI_SCHEMA) ---
-        // Priorizamos 'nome_pet' que é o que está no teu JSON de schema
+        const comandoFonteSCAD = `use <${caminhoAbsolutoFonte.replace(/\\/g, '/')}>\n`;
+
+        // --- 2. MAPEAMENTO DE VARIÁVEIS ---
         const nomesPadrao = {
             nome: (d.nome_pet || d.nome || "NOME").toUpperCase(),
             telefone: d.telefone || d.numero || "",
@@ -62,73 +68,70 @@ app.post('/gerar-stl-pro', async (req, res) => {
             yPos: d.yPos || 0,
             xPosN: d.xPosN || 0,
             yPosN: d.yPosN || 0,
-            fonte: nomeRealFonte 
+            fonte: selecao.name // Enviamos o NOME REAL para a função text()
         };
 
         let variaveisSCAD = "";
         Object.entries(nomesPadrao).forEach(([key, value]) => {
             if (typeof value === 'string') {
-                // Escapar aspas duplas para evitar quebra de código no OpenSCAD
-                const stringSegura = value.replace(/"/g, "'");
-                variaveisSCAD += `${key} = "${stringSegura}";\n`;
+                variaveisSCAD += `${key} = "${value.replace(/"/g, "'")}";\n`;
             } else {
                 variaveisSCAD += `${key} = ${value};\n`;
             }
         });
 
-        // --- 3. MONTAGEM DO CÓDIGO FINAL ---
-        // As variáveis injetadas aqui têm prioridade se o template NÃO as definir novamente
         const codigoFinal = `${comandoFonteSCAD}\n$fn=64;\n${variaveisSCAD}\n${design.scad_template}`;
 
         const tempDir = path.join(__dirname, 'temp');
         if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
 
-        const fileId = `render_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+        const fileId = `render_${Date.now()}`;
         const scadPath = path.join(tempDir, `${fileId}.scad`);
         const stlPath = path.join(tempDir, `${fileId}.stl`);
 
         fs.writeFileSync(scadPath, codigoFinal);
-        console.log("--- CÓDIGO GERADO ---");
-        console.log(codigoFinal);
-        console.log("---------------------");
 
-        // --- 4. EXECUÇÃO OPENSCAD ---
-        exec(`openscad -o "${stlPath}" "${scadPath}"`, async (error, stdout, stderr) => {
+        // --- 3. EXECUÇÃO COM TIMEOUT PARA EVITAR TRAVAMENTOS ---
+        exec(`openscad -o "${stlPath}" "${scadPath}"`, { timeout: 20000 }, async (error, stdout, stderr) => {
             if (error) {
-                console.error("Erro OpenSCAD:", stderr);
-                return res.status(500).json({ error: "Erro na renderização 3D" });
+                console.error("❌ Erro Crítico OpenSCAD:", stderr);
+                return res.status(500).json({ error: "Erro na renderização 3D", details: stderr });
             }
 
             try {
-                if (!fs.existsSync(stlPath)) throw new Error("Ficheiro STL não foi gerado");
+                if (!fs.existsSync(stlPath)) throw new Error("STL não gerado");
 
                 const fileBuffer = fs.readFileSync(stlPath);
-                
-                // Tenta mudar o caminho do upload para incluir um timestamp e evitar cache
+                const storagePath = `final/${fileId}.stl`;
+
                 const { error: upError } = await supabase.storage
                     .from('makers_pro_stl_prod')
-                    .upload(`final/${fileId}_${Date.now()}.stl`, 
-                    fileBuffer, { contentType: 'model/stl', upsert: true });
+                    .upload(storagePath, fileBuffer, { 
+                        contentType: 'model/stl', 
+                        upsert: true,
+                        cacheControl: '0' 
+                    });
 
                 if (upError) throw upError;
 
                 const { data: urlData } = supabase.storage
                     .from('makers_pro_stl_prod')
-                    .getPublicUrl(`final/${fileId}.stl`);
+                    .getPublicUrl(storagePath);
 
-                // Limpeza imediata dos ficheiros locais para poupar espaço
+                // Limpeza
                 fs.unlink(scadPath, () => {});
                 fs.unlink(stlPath, () => {});
 
                 res.json({ url: urlData.publicUrl });
+
             } catch (err) {
-                console.error("Erro no processamento do ficheiro:", err);
-                res.status(500).json({ error: "Erro ao processar/guardar o ficheiro final" });
+                console.error("❌ Erro no Processamento:", err);
+                res.status(500).json({ error: "Falha ao guardar ficheiro" });
             }
         });
 
     } catch (e) {
-        console.error("Erro Crítico no Servidor:", e);
+        console.error("❌ Erro Geral:", e);
         res.status(500).json({ error: "Erro interno no servidor" });
     }
 });
