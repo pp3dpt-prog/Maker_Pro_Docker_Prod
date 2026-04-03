@@ -25,6 +25,7 @@ app.post('/gerar-stl-pro', async (req, res) => {
     const designId = d.id || d.forma; 
 
     console.log(`🚀 A processar design: ${designId}`);
+    console.log(`📦 Dados recebidos:`, d);
 
     try {
         const { data: design, error: dbError } = await supabase
@@ -36,8 +37,7 @@ app.post('/gerar-stl-pro', async (req, res) => {
         if (dbError) throw dbError;
         if (!design) return res.status(404).json({ error: "Design não encontrado" });
 
-        // --- 1. MAPEAMENTO DE FONTES (NOVA FUNCIONALIDADE) ---
-        // Mapeia o nome que vem do frontend para o ficheiro real na tua pasta /fonts
+        // --- 1. MAPEAMENTO DE FONTES ---
         const fontesPathMap = {
             'Bebas': 'fonts/BebasNeue-Regular.ttf',
             'Playfair': 'fonts/PlayfairDisplay-Bold.ttf',
@@ -52,11 +52,12 @@ app.post('/gerar-stl-pro', async (req, res) => {
         const caminhoAbsolutoFonte = path.join(__dirname, ficheiroFonte);
 
         // Comando 'use' para o OpenSCAD carregar o ficheiro TTF físico
-        const comandoFonteSCAD = `use <${caminhoAbsolutoFonte}>\n`;
+        const comandoFonteSCAD = `use <${caminhoAbsolutoFonte.replace(/\\/g, '/')}>\n`;
 
-        // --- 2. MAPEAMENTO DE VARIÁVEIS ---
+        // --- 2. MAPEAMENTO DE VARIÁVEIS (CORRIGIDO PARA O TEU UI_SCHEMA) ---
+        // Priorizamos 'nome_pet' que é o que está no teu JSON de schema
         const nomesPadrao = {
-            nome: d.nome || d.nome_pet || "Sem Nome",
+            nome: (d.nome_pet || d.nome || "NOME").toUpperCase(),
             telefone: d.telefone || d.numero || "",
             fontSize: d.fontSize || d.tamanho || 7,
             fontSizeN: d.fontSizeN || d.tamanho_verso || 6.5,
@@ -64,12 +65,13 @@ app.post('/gerar-stl-pro', async (req, res) => {
             yPos: d.yPos || 0,
             xPosN: d.xPosN || 0,
             yPosN: d.yPosN || 0,
-            fonte: nomeFonteOriginal // Mantemos o nome para a função text()
+            fonte: nomeFonteOriginal 
         };
 
         let variaveisSCAD = "";
         Object.entries(nomesPadrao).forEach(([key, value]) => {
             if (typeof value === 'string') {
+                // Escapar aspas duplas para evitar quebra de código no OpenSCAD
                 const stringSegura = value.replace(/"/g, "'");
                 variaveisSCAD += `${key} = "${stringSegura}";\n`;
             } else {
@@ -78,13 +80,13 @@ app.post('/gerar-stl-pro', async (req, res) => {
         });
 
         // --- 3. MONTAGEM DO CÓDIGO FINAL ---
-        // Combinamos: Fonte + Variáveis + Template do Banco de Dados
+        // As variáveis injetadas aqui têm prioridade se o template NÃO as definir novamente
         const codigoFinal = `${comandoFonteSCAD}\n$fn=64;\n${variaveisSCAD}\n${design.scad_template}`;
 
         const tempDir = path.join(__dirname, 'temp');
         if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
 
-        const fileId = `render_${Date.now()}`;
+        const fileId = `render_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
         const scadPath = path.join(tempDir, `${fileId}.scad`);
         const stlPath = path.join(tempDir, `${fileId}.stl`);
 
@@ -94,14 +96,22 @@ app.post('/gerar-stl-pro', async (req, res) => {
         exec(`openscad -o "${stlPath}" "${scadPath}"`, async (error, stdout, stderr) => {
             if (error) {
                 console.error("Erro OpenSCAD:", stderr);
-                return res.status(500).json({ error: "Erro na renderização" });
+                return res.status(500).json({ error: "Erro na renderização 3D" });
             }
 
             try {
+                if (!fs.existsSync(stlPath)) throw new Error("Ficheiro STL não foi gerado");
+
                 const fileBuffer = fs.readFileSync(stlPath);
+                
+                // Upload para o Storage (Upsert garante que substitui se o ID colidir)
                 const { error: upError } = await supabase.storage
                     .from('makers_pro_stl_prod')
-                    .upload(`final/${fileId}.stl`, fileBuffer, { contentType: 'model/stl', upsert: true });
+                    .upload(`final/${fileId}.stl`, fileBuffer, { 
+                        contentType: 'model/stl', 
+                        upsert: true,
+                        cacheControl: '0' // Evita que o browser guarde versões antigas
+                    });
 
                 if (upError) throw upError;
 
@@ -109,24 +119,24 @@ app.post('/gerar-stl-pro', async (req, res) => {
                     .from('makers_pro_stl_prod')
                     .getPublicUrl(`final/${fileId}.stl`);
 
-                // Limpeza de ficheiros temporários
+                // Limpeza imediata dos ficheiros locais para poupar espaço
                 fs.unlink(scadPath, () => {});
                 fs.unlink(stlPath, () => {});
 
                 res.json({ url: urlData.publicUrl });
             } catch (err) {
-                console.error("Erro Upload/Storage:", err);
-                res.status(500).json({ error: "Erro ao guardar STL" });
+                console.error("Erro no processamento do ficheiro:", err);
+                res.status(500).json({ error: "Erro ao processar/guardar o ficheiro final" });
             }
         });
 
     } catch (e) {
-        console.error("Erro Crítico:", e);
+        console.error("Erro Crítico no Servidor:", e);
         res.status(500).json({ error: "Erro interno no servidor" });
     }
 });
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Servidor online na porta ${PORT}`);
+    console.log(`🚀 Servidor MakerPro online na porta ${PORT}`);
 });
