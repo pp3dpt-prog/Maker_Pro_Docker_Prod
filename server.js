@@ -61,8 +61,8 @@ app.post('/gerar-stl-pro', async (req, res) => {
         });
 
         // Adiciona a escala base se necessário
-        const escalaBase = d.escala || design.default_size_nome || 30;
-        variaveisSCAD += `escala = ${escalaBase};\n`;
+        //const escalaBase = d.escala || design.default_size_nome || 30;
+        //variaveisSCAD += `escala = ${escalaBase};\n`;
 
         // Código Final: Injetamos as variáveis ANTES do template
         const codigoFinal = `$fn=64;\n${variaveisSCAD}\n${design.scad_template}`;
