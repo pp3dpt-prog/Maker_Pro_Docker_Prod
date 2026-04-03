@@ -49,10 +49,9 @@ app.post('/gerar-stl-pro', async (req, res) => {
 
         const nomeFonteOriginal = d.fonte || d.fonte_escolhida || "Liberation Sans";
         const ficheiroFonte = fontesPathMap[nomeFonteOriginal] || 'fonts/OpenSans-Bold.ttf';
-        const caminhoAbsolutoFonte = path.join(__dirname, ficheiroFonte);
-
-        // Comando 'use' para o OpenSCAD carregar o ficheiro TTF físico
-        const comandoFonteSCAD = `use <${caminhoAbsolutoFonte.replace(/\\/g, '/')}>\n`;
+        // No teu server.js
+        const caminhoAbsolutoFonte = path.resolve(__dirname, ficheiroFonte).replace(/\\/g, '/');
+        const comandoFonteSCAD = `use <${caminhoAbsolutoFonte}>\n`;
 
         // --- 2. MAPEAMENTO DE VARIÁVEIS (CORRIGIDO PARA O TEU UI_SCHEMA) ---
         // Priorizamos 'nome_pet' que é o que está no teu JSON de schema
@@ -91,6 +90,9 @@ app.post('/gerar-stl-pro', async (req, res) => {
         const stlPath = path.join(tempDir, `${fileId}.stl`);
 
         fs.writeFileSync(scadPath, codigoFinal);
+        console.log("--- CÓDIGO GERADO ---");
+        console.log(codigoFinal);
+        console.log("---------------------");
 
         // --- 4. EXECUÇÃO OPENSCAD ---
         exec(`openscad -o "${stlPath}" "${scadPath}"`, async (error, stdout, stderr) => {
@@ -104,14 +106,11 @@ app.post('/gerar-stl-pro', async (req, res) => {
 
                 const fileBuffer = fs.readFileSync(stlPath);
                 
-                // Upload para o Storage (Upsert garante que substitui se o ID colidir)
+                // Tenta mudar o caminho do upload para incluir um timestamp e evitar cache
                 const { error: upError } = await supabase.storage
                     .from('makers_pro_stl_prod')
-                    .upload(`final/${fileId}.stl`, fileBuffer, { 
-                        contentType: 'model/stl', 
-                        upsert: true,
-                        cacheControl: '0' // Evita que o browser guarde versões antigas
-                    });
+                    .upload(`final/${fileId}_${Date.now()}.stl`, 
+                    fileBuffer, { contentType: 'model/stl', upsert: true });
 
                 if (upError) throw upError;
 
