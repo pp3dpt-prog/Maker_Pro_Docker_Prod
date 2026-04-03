@@ -36,8 +36,25 @@ app.post('/gerar-stl-pro', async (req, res) => {
         if (dbError) throw dbError;
         if (!design) return res.status(404).json({ error: "Design não encontrado" });
 
-        // --- MAPEAMENTO INTELIGENTE (A SOLUÇÃO) ---
-        // Aqui garantimos que o OpenSCAD recebe nomes consistentes
+        // --- 1. MAPEAMENTO DE FONTES (NOVA FUNCIONALIDADE) ---
+        // Mapeia o nome que vem do frontend para o ficheiro real na tua pasta /fonts
+        const fontesPathMap = {
+            'Bebas': 'fonts/BebasNeue-Regular.ttf',
+            'Playfair': 'fonts/PlayfairDisplay-Bold.ttf',
+            'Eindhoven': 'fonts/Eindhoven.ttf',
+            'BADABB': 'fonts/BADABB.ttf',
+            'Open Sans': 'fonts/OpenSans-Bold.ttf',
+            'Liberation Sans': 'fonts/LiberationSans-Bold.ttf'
+        };
+
+        const nomeFonteOriginal = d.fonte || d.fonte_escolhida || "Liberation Sans";
+        const ficheiroFonte = fontesPathMap[nomeFonteOriginal] || 'fonts/OpenSans-Bold.ttf';
+        const caminhoAbsolutoFonte = path.join(__dirname, ficheiroFonte);
+
+        // Comando 'use' para o OpenSCAD carregar o ficheiro TTF físico
+        const comandoFonteSCAD = `use <${caminhoAbsolutoFonte}>\n`;
+
+        // --- 2. MAPEAMENTO DE VARIÁVEIS ---
         const nomesPadrao = {
             nome: d.nome || d.nome_pet || "Sem Nome",
             telefone: d.telefone || d.numero || "",
@@ -47,7 +64,7 @@ app.post('/gerar-stl-pro', async (req, res) => {
             yPos: d.yPos || 0,
             xPosN: d.xPosN || 0,
             yPosN: d.yPosN || 0,
-            fonte: d.fonte || d.fonte_escolhida || "Liberation Sans"
+            fonte: nomeFonteOriginal // Mantemos o nome para a função text()
         };
 
         let variaveisSCAD = "";
@@ -60,12 +77,9 @@ app.post('/gerar-stl-pro', async (req, res) => {
             }
         });
 
-        // Adiciona a escala base se necessário
-        //const escalaBase = d.escala || design.default_size_nome || 30;
-        //variaveisSCAD += `escala = ${escalaBase};\n`;
-
-        // Código Final: Injetamos as variáveis ANTES do template
-        const codigoFinal = `$fn=64;\n${variaveisSCAD}\n${design.scad_template}`;
+        // --- 3. MONTAGEM DO CÓDIGO FINAL ---
+        // Combinamos: Fonte + Variáveis + Template do Banco de Dados
+        const codigoFinal = `${comandoFonteSCAD}\n$fn=64;\n${variaveisSCAD}\n${design.scad_template}`;
 
         const tempDir = path.join(__dirname, 'temp');
         if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
@@ -76,6 +90,7 @@ app.post('/gerar-stl-pro', async (req, res) => {
 
         fs.writeFileSync(scadPath, codigoFinal);
 
+        // --- 4. EXECUÇÃO OPENSCAD ---
         exec(`openscad -o "${stlPath}" "${scadPath}"`, async (error, stdout, stderr) => {
             if (error) {
                 console.error("Erro OpenSCAD:", stderr);
@@ -94,18 +109,20 @@ app.post('/gerar-stl-pro', async (req, res) => {
                     .from('makers_pro_stl_prod')
                     .getPublicUrl(`final/${fileId}.stl`);
 
+                // Limpeza de ficheiros temporários
                 fs.unlink(scadPath, () => {});
                 fs.unlink(stlPath, () => {});
 
                 res.json({ url: urlData.publicUrl });
             } catch (err) {
-                res.status(500).json({ error: "Erro no upload" });
+                console.error("Erro Upload/Storage:", err);
+                res.status(500).json({ error: "Erro ao guardar STL" });
             }
         });
 
     } catch (e) {
         console.error("Erro Crítico:", e);
-        res.status(500).json({ error: "Erro interno" });
+        res.status(500).json({ error: "Erro interno no servidor" });
     }
 });
 
