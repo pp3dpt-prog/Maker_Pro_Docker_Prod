@@ -7,6 +7,7 @@ const cors = require('cors');
 
 const app = express();
 
+// Configuração de CORS para permitir o teu frontend
 app.use(cors({
     origin: '*',
     methods: ['GET', 'POST', 'OPTIONS'],
@@ -25,20 +26,18 @@ app.post('/gerar-stl-pro', async (req, res) => {
     const designId = d.id || d.forma; 
 
     console.log(`🚀 A processar design: ${designId}`);
+    console.log(`📦 Dados recebidos:`, d);
 
     try {
         const { data: design, error: dbError } = await supabase
             .from('prod_designs')
-            .select('scad_template, ui_schema, default_size_nome')
+            .select('scad_template')
             .eq('id', designId)
             .maybeSingle();
 
-        if (dbError || !design) {
-            return res.status(404).json({ error: "Design não encontrado ou erro no banco" });
-        }
+        if (dbError || !design) return res.status(404).json({ error: "Design não encontrado" });
 
-        // --- 1. MAPEAMENTO DE FONTES (CORREÇÃO DE NOMES REAIS) ---
-        // O 'name' deve ser o nome interno da fonte que o OpenSCAD lê
+        // --- 1. MAPEAMENTO DE FONTES (NOMES REAIS PARA O OPENSCAD) ---
         const fontesPathMap = {
             'Bebas': { file: 'fonts/BebasNeue-Regular.ttf', name: 'Bebas Neue' },
             'Playfair': { file: 'fonts/PlayfairDisplay-Bold.ttf', name: 'Playfair Display' },
@@ -49,26 +48,28 @@ app.post('/gerar-stl-pro', async (req, res) => {
         };
 
         const selecao = fontesPathMap[d.fonte] || fontesPathMap['Open Sans'];
-        const caminhoAbsolutoFonte = path.join(__dirname, selecao.file);
+        const caminhoAbsolutoFonte = path.resolve(__dirname, selecao.file).replace(/\\/g, '/');
         
-        // Verifica se o ficheiro de fonte existe mesmo antes de continuar
-        if (!fs.existsSync(caminhoAbsolutoFonte)) {
-            console.error(`❌ Fonte não encontrada: ${caminhoAbsolutoFonte}`);
+        // Definição da variável de carregamento de fonte
+        let comandoFonteSCAD = "";
+        if (fs.existsSync(caminhoAbsolutoFonte)) {
+            comandoFonteSCAD = `use <${caminhoAbsolutoFonte}>\n`;
+            console.log(`✅ Fonte carregada: ${selecao.name}`);
+        } else {
+            console.warn(`⚠️ Ficheiro de fonte não encontrado: ${caminhoAbsolutoFonte}`);
         }
 
-        const comandoFonteSCAD = `use <${caminhoAbsolutoFonte.replace(/\\/g, '/')}>\n`;
-
-        // --- 2. MAPEAMENTO DE VARIÁVEIS ---
+        // --- 2. MAPEAMENTO DE VARIÁVEIS (RESPEITANDO O UI_SCHEMA) ---
         const nomesPadrao = {
             nome: (d.nome_pet || d.nome || "NOME").toUpperCase(),
-            telefone: d.telefone || d.numero || "",
+            telefone: d.telefone || "",
             fontSize: d.fontSize || d.tamanho || 7,
-            fontSizeN: d.fontSizeN || d.tamanho_verso || 6.5,
+            fontSizeN: d.fontSizeN || d.tamanho_verso || 5,
             xPos: d.xPos || 0,
             yPos: d.yPos || 0,
             xPosN: d.xPosN || 0,
             yPosN: d.yPosN || 0,
-            fonte: selecao.name // Enviamos o NOME REAL para a função text()
+            fonte: selecao.name // Nome interno que o OpenSCAD entende
         };
 
         let variaveisSCAD = "";
@@ -80,33 +81,33 @@ app.post('/gerar-stl-pro', async (req, res) => {
             }
         });
 
+        // --- 3. MONTAGEM DO CÓDIGO FINAL ---
         const codigoFinal = `${comandoFonteSCAD}\n$fn=64;\n${variaveisSCAD}\n${design.scad_template}`;
 
         const tempDir = path.join(__dirname, 'temp');
         if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
 
-        const fileId = `render_${Date.now()}`;
+        const fileId = `render_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
         const scadPath = path.join(tempDir, `${fileId}.scad`);
         const stlPath = path.join(tempDir, `${fileId}.stl`);
 
         fs.writeFileSync(scadPath, codigoFinal);
 
-        // --- 3. EXECUÇÃO COM TIMEOUT PARA EVITAR TRAVAMENTOS ---
-        exec(`openscad -o "${stlPath}" "${scadPath}"`, { timeout: 20000 }, async (error, stdout, stderr) => {
+        // --- 4. EXECUÇÃO OPENSCAD (COM TIMEOUT) ---
+        exec(`openscad -o "${stlPath}" "${scadPath}"`, { timeout: 35000 }, async (error, stdout, stderr) => {
             if (error) {
-                console.error("❌ Erro Crítico OpenSCAD:", stderr);
+                console.error("❌ Erro OpenSCAD:", stderr);
                 return res.status(500).json({ error: "Erro na renderização 3D", details: stderr });
             }
 
             try {
-                if (!fs.existsSync(stlPath)) throw new Error("STL não gerado");
+                if (!fs.existsSync(stlPath)) throw new Error("STL não gerado pelo OpenSCAD");
 
                 const fileBuffer = fs.readFileSync(stlPath);
-                const storagePath = `final/${fileId}.stl`;
-
+                
                 const { error: upError } = await supabase.storage
                     .from('makers_pro_stl_prod')
-                    .upload(storagePath, fileBuffer, { 
+                    .upload(`final/${fileId}.stl`, fileBuffer, { 
                         contentType: 'model/stl', 
                         upsert: true,
                         cacheControl: '0' 
@@ -116,22 +117,23 @@ app.post('/gerar-stl-pro', async (req, res) => {
 
                 const { data: urlData } = supabase.storage
                     .from('makers_pro_stl_prod')
-                    .getPublicUrl(storagePath);
+                    .getPublicUrl(`final/${fileId}.stl`);
 
-                // Limpeza
+                // Limpeza de ficheiros temporários
                 fs.unlink(scadPath, () => {});
                 fs.unlink(stlPath, () => {});
 
+                console.log(`✅ STL Gerado com sucesso: ${urlData.publicUrl}`);
                 res.json({ url: urlData.publicUrl });
 
             } catch (err) {
-                console.error("❌ Erro no Processamento:", err);
-                res.status(500).json({ error: "Falha ao guardar ficheiro" });
+                console.error("❌ Erro no Processamento Final:", err);
+                res.status(500).json({ error: "Erro ao processar/guardar o ficheiro" });
             }
         });
 
     } catch (e) {
-        console.error("❌ Erro Geral:", e);
+        console.error("❌ Erro Crítico:", e);
         res.status(500).json({ error: "Erro interno no servidor" });
     }
 });
