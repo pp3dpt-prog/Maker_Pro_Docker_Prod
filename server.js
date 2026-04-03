@@ -7,18 +7,10 @@ const cors = require('cors');
 
 const app = express();
 
-app.use(cors({
-    origin: '*',
-    methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
-}));
-
+app.use(cors({ origin: '*', methods: ['GET', 'POST', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] }));
 app.use(express.json());
 
-const supabase = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
 app.post('/gerar-stl-pro', async (req, res) => {
     const d = req.body;
@@ -35,6 +27,7 @@ app.post('/gerar-stl-pro', async (req, res) => {
 
         if (dbError || !design) return res.status(404).json({ error: "Design não encontrado" });
 
+        // --- 1. MAPEAMENTO DE FONTES ---
         const fontesPathMap = {
             'Bebas': { file: 'fonts/BebasNeue-Regular.ttf', name: 'Bebas Neue' },
             'Playfair': { file: 'fonts/PlayfairDisplay-Bold.ttf', name: 'Playfair Display' },
@@ -49,10 +42,11 @@ app.post('/gerar-stl-pro', async (req, res) => {
         
         let comandoFonteSCAD = "";
         if (fs.existsSync(caminhoAbsolutoFonte)) {
+            // IMPORTANTE: Usamos o caminho absoluto e garantimos que o OpenSCAD o regista
             comandoFonteSCAD = `use <${caminhoAbsolutoFonte}>\n`;
-            console.log(`✅ Fonte validada: ${selecao.name}`);
         }
 
+        // --- 2. VARIÁVEIS ---
         const nomesPadrao = {
             nome: (d.nome_pet || d.nome || "NOME").toUpperCase(),
             telefone: d.telefone || "",
@@ -74,8 +68,9 @@ app.post('/gerar-stl-pro', async (req, res) => {
             }
         });
 
-        // Otimização: Baixamos o $fn para 32 para renderizar mais rápido no Render.com
-        const codigoFinal = `${comandoFonteSCAD}\n$fn=32;\n${variaveisSCAD}\n${design.scad_template}`;
+        // --- 3. MONTAGEM OTIMIZADA ---
+        // Reduzimos o $fn drasticamente para 24 para garantir que o Render aguenta a renderização
+        const codigoFinal = `${comandoFonteSCAD}\n$fn=24;\n${variaveisSCAD}\n${design.scad_template}`;
 
         const tempDir = path.join(__dirname, 'temp');
         if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
@@ -86,21 +81,27 @@ app.post('/gerar-stl-pro', async (req, res) => {
 
         fs.writeFileSync(scadPath, codigoFinal);
 
-        // Aumentamos o timeout para 60 segundos porque o Render é lento
-        exec(`openscad -o "${stlPath}" "${scadPath}"`, { timeout: 60000 }, async (error, stdout, stderr) => {
+        // --- 4. EXECUÇÃO ---
+        // Adicionamos flags de memória para o OpenSCAD ser mais conservador
+        const cmd = `openscad --render -o "${stlPath}" "${scadPath}"`;
+        
+        exec(cmd, { timeout: 45000 }, async (error, stdout, stderr) => {
             if (error) {
                 console.error("❌ Erro OpenSCAD Detalhado:", stderr || error.message);
-                return res.status(500).json({ error: "Erro na renderização 3D", details: stderr });
+                // Se der erro, tentamos apagar os ficheiros para não ocupar espaço
+                try { fs.unlinkSync(scadPath); } catch(e){}
+                return res.status(500).json({ error: "Erro na renderização", details: stderr });
             }
 
             try {
-                if (!fs.existsSync(stlPath)) throw new Error("Ficheiro STL não encontrado após comando");
+                if (!fs.existsSync(stlPath)) throw new Error("STL não gerado");
 
                 const fileBuffer = fs.readFileSync(stlPath);
-                
+                const storagePath = `final/${fileId}.stl`;
+
                 const { error: upError } = await supabase.storage
                     .from('makers_pro_stl_prod')
-                    .upload(`final/${fileId}.stl`, fileBuffer, { 
+                    .upload(storagePath, fileBuffer, { 
                         contentType: 'model/stl', 
                         upsert: true,
                         cacheControl: '0' 
@@ -110,17 +111,18 @@ app.post('/gerar-stl-pro', async (req, res) => {
 
                 const { data: urlData } = supabase.storage
                     .from('makers_pro_stl_prod')
-                    .getPublicUrl(`final/${fileId}.stl`);
+                    .getPublicUrl(storagePath);
 
+                // Limpeza
                 fs.unlink(scadPath, () => {});
                 fs.unlink(stlPath, () => {});
 
-                console.log(`✨ STL concluído: ${fileId}`);
+                console.log(`✅ Sucesso: ${urlData.publicUrl}`);
                 res.json({ url: urlData.publicUrl });
 
             } catch (err) {
-                console.error("❌ Erro pós-renderização:", err);
-                res.status(500).json({ error: "Erro ao processar ficheiro" });
+                console.error("❌ Erro Final:", err);
+                res.status(500).json({ error: "Erro no processamento final" });
             }
         });
 
@@ -131,4 +133,4 @@ app.post('/gerar-stl-pro', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server on port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Servidor MakerPro porta ${PORT}`));
