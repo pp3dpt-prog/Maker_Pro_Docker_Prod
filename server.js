@@ -42,29 +42,28 @@ app.post('/gerar-stl-pro', async (req, res) => {
         
         let comandoFonteSCAD = "";
         if (fs.existsSync(caminhoAbsolutoFonte)) {
-            // IMPORTANTE: Usamos o caminho absoluto e garantimos que o OpenSCAD o regista
             comandoFonteSCAD = `use <${caminhoAbsolutoFonte}>\n`;
         }
 
-        // --- 2. VARIÁVEIS DINÂMICAS (Tags + Caixas + Futuros) ---
-        let variaveisSCAD = "";
-        
-        // 1. Injeta os valores padrão de segurança para as Tags (para não quebrar o que já existe)
-        const defaults = {
+        // --- 2. VARIÁVEIS DINÂMICAS ---
+        // Combinamos valores padrão com tudo o que vem do request (d)
+        const dadosParaSCAD = {
             nome: (d.nome_pet || d.nome || "NOME").toUpperCase(),
             telefone: d.telefone || "",
-            fonte: selecao.name,
             fontSize: d.fontSize || 7,
+            fontSizeN: d.fontSizeN || 5,
             xPos: d.xPos || 0,
-            yPos: d.yPos || 0
+            yPos: d.yPos || 0,
+            xPosN: d.xPosN || 0,
+            yPosN: d.yPosN || 0,
+            fonte: selecao.name,
+            ...d // Isto inclui largura, altura, espessura, etc.
         };
 
-        // 2. Varre TUDO o que vem do frontend (inclui largura, altura, espessura da caixa)
-        const todasAsVars = { ...defaults, ...d };
-
-        Object.entries(todasAsVars).forEach(([key, value]) => {
-            // Ignora campos de sistema
-            if (['id', 'forma', 'escala'].includes(key)) return;
+        let variaveisSCAD = "";
+        Object.entries(dadosParaSCAD).forEach(([key, value]) => {
+            // Ignora chaves que não são variáveis do OpenSCAD
+            if (['id', 'forma', 'ui_schema'].includes(key)) return;
 
             if (typeof value === 'string') {
                 variaveisSCAD += `${key} = "${value.replace(/"/g, "'")}";\n`;
@@ -72,8 +71,7 @@ app.post('/gerar-stl-pro', async (req, res) => {
                 variaveisSCAD += `${key} = ${value};\n`;
             }
         });
-        // --- 3. MONTAGEM OTIMIZADA ---
-        // Reduzimos o $fn drasticamente para 24 para garantir que o Render aguenta a renderização
+
         const codigoFinal = `${comandoFonteSCAD}\n$fn=24;\n${variaveisSCAD}\n${design.scad_template}`;
 
         const tempDir = path.join(__dirname, 'temp');
@@ -85,14 +83,11 @@ app.post('/gerar-stl-pro', async (req, res) => {
 
         fs.writeFileSync(scadPath, codigoFinal);
 
-        // --- 4. EXECUÇÃO ---
-        // Adicionamos flags de memória para o OpenSCAD ser mais conservador
         const cmd = `openscad --render -o "${stlPath}" "${scadPath}"`;
         
         exec(cmd, { timeout: 45000 }, async (error, stdout, stderr) => {
             if (error) {
                 console.error("❌ Erro OpenSCAD Detalhado:", stderr || error.message);
-                // Se der erro, tentamos apagar os ficheiros para não ocupar espaço
                 try { fs.unlinkSync(scadPath); } catch(e){}
                 return res.status(500).json({ error: "Erro na renderização", details: stderr });
             }
@@ -117,11 +112,9 @@ app.post('/gerar-stl-pro', async (req, res) => {
                     .from('makers_pro_stl_prod')
                     .getPublicUrl(storagePath);
 
-                // Limpeza
                 fs.unlink(scadPath, () => {});
                 fs.unlink(stlPath, () => {});
 
-                console.log(`✅ Sucesso: ${urlData.publicUrl}`);
                 res.json({ url: urlData.publicUrl });
 
             } catch (err) {
