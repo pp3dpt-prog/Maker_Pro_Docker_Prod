@@ -7,7 +7,6 @@ const cors = require('cors');
 
 const app = express();
 
-// Configuração de CORS e JSON
 app.use(cors({ origin: '*', methods: ['GET', 'POST', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] }));
 app.use(express.json());
 
@@ -28,7 +27,7 @@ app.post('/gerar-stl-pro', async (req, res) => {
 
         if (dbError || !design) return res.status(404).json({ error: "Design não encontrado" });
 
-        // --- 1. MAPEAMENTO DE FONTES (Mantido original) ---
+        // 1. MAPEAMENTO DE FONTES
         const fontesPathMap = {
             'Bebas': { file: 'fonts/BebasNeue-Regular.ttf', name: 'Bebas Neue' },
             'Playfair': { file: 'fonts/PlayfairDisplay-Bold.ttf', name: 'Playfair Display' },
@@ -41,13 +40,9 @@ app.post('/gerar-stl-pro', async (req, res) => {
 
         const selecao = fontesPathMap[d.fonte] || fontesPathMap['Open Sans'];
         const caminhoAbsolutoFonte = path.resolve(__dirname, selecao.file).replace(/\\/g, '/');
-        
-        let comandoFonteSCAD = "";
-        if (fs.existsSync(caminhoAbsolutoFonte)) {
-            comandoFonteSCAD = `use <${caminhoAbsolutoFonte}>\n`;
-        }
+        let comandoFonteSCAD = fs.existsSync(caminhoAbsolutoFonte) ? `use <${caminhoAbsolutoFonte}>\n` : "";
 
-        // --- 2. FUNÇÃO INTERNA DE RENDERIZAÇÃO ---
+        // 2. FUNÇÃO DE RENDERIZAÇÃO MELHORADA
         const executarRender = async (prefixo, varsExtras = "") => {
             const fileId = `${prefixo}_${Date.now()}`;
             const tempDir = path.join(__dirname, 'temp');
@@ -56,8 +51,7 @@ app.post('/gerar-stl-pro', async (req, res) => {
             const scadPath = path.join(tempDir, `${fileId}.scad`);
             const stlPath = path.join(tempDir, `${fileId}.stl`);
 
-            // Montagem das variáveis (Mantendo a compatibilidade total com Pet Tags e Caixas)
-            let variaveisSCAD = varsExtras;
+            // Dados base para garantir que nunca falte uma variável essencial
             const dadosParaSCAD = {
                 nome: (d.nome_pet || d.nome || "NOME").toUpperCase(),
                 telefone: d.telefone || "",
@@ -68,15 +62,20 @@ app.post('/gerar-stl-pro', async (req, res) => {
                 xPosN: d.xPosN || 0,
                 yPosN: d.yPosN || 0,
                 fonte: selecao.name,
-                ...d 
+                ...d // Inclui largura, altura, etc.
             };
 
+            let variaveisSCAD = varsExtras;
             Object.entries(dadosParaSCAD).forEach(([key, value]) => {
                 if (['id', 'forma', 'ui_schema'].includes(key)) return;
+
+                // CORREÇÃO CRÍTICA: Formatação rigorosa para evitar o erro de Parser
                 if (typeof value === 'string') {
                     variaveisSCAD += `${key} = "${value.replace(/"/g, "'")}";\n`;
-                } else if (typeof value === 'number' || typeof value === 'boolean') {
+                } else if (typeof value === 'number') {
                     variaveisSCAD += `${key} = ${value};\n`;
+                } else if (typeof value === 'boolean') {
+                    variaveisSCAD += `${key} = ${value ? "true" : "false"};\n`;
                 }
             });
 
@@ -84,11 +83,12 @@ app.post('/gerar-stl-pro', async (req, res) => {
             fs.writeFileSync(scadPath, codigoFinal);
 
             return new Promise((resolve, reject) => {
-                const cmd = `openscad --render -o "${stlPath}" "${scadPath}"`;
-                exec(cmd, { timeout: 45000 }, async (error) => {
+                // Timeout aumentado para peças complexas como caixas
+                exec(`openscad --render -o "${stlPath}" "${scadPath}"`, { timeout: 60000 }, async (error, stdout, stderr) => {
                     if (error) {
+                        console.error(`❌ Erro OpenSCAD no ficheiro ${fileId}:`, stderr);
                         if (fs.existsSync(scadPath)) fs.unlinkSync(scadPath);
-                        return reject(error);
+                        return reject(new Error(stderr || error.message));
                     }
 
                     try {
@@ -101,17 +101,17 @@ app.post('/gerar-stl-pro', async (req, res) => {
 
                         const { data: urlData } = supabase.storage.from('makers_pro_stl_prod').getPublicUrl(storagePath);
                         
-                        fs.unlinkSync(scadPath);
-                        fs.unlinkSync(stlPath);
+                        // Limpeza
+                        if (fs.existsSync(scadPath)) fs.unlinkSync(scadPath);
+                        if (fs.existsSync(stlPath)) fs.unlinkSync(stlPath);
+                        
                         resolve(urlData.publicUrl);
-                    } catch (err) {
-                        reject(err);
-                    }
+                    } catch (err) { reject(err); }
                 });
             });
         };
 
-        // --- 3. LÓGICA DE RESPOSTA (Individual ou Múltipla) ---
+        // 3. LÓGICA DE RESPOSTA
         if (d.com_tampa === true) {
             console.log("📦 Gerando Caixa e Tampa separadamente...");
             const urlCaixa = await executarRender("caixa", "gerar_parte = 'corpo';\n");
@@ -124,9 +124,9 @@ app.post('/gerar-stl-pro', async (req, res) => {
 
     } catch (e) {
         console.error("❌ Erro Crítico:", e);
-        res.status(500).json({ error: "Erro interno no servidor", details: e.message });
+        res.status(500).json({ error: "Erro interno", details: e.message });
     }
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Servidor MakerPro ativo na porta ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Servidor ativo na porta ${PORT}`));
