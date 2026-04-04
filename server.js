@@ -44,6 +44,7 @@ app.post('/gerar-stl-pro', async (req, res) => {
 
             let conteudoVariaveis = varsExtras;
 
+            // 1. Injetar UI_SCHEMA (Para Caixas/Paramétricos)
             if (design.ui_schema) {
                 design.ui_schema.forEach(campo => {
                     const valor = d[campo.name] !== undefined ? d[campo.name] : campo.default;
@@ -57,30 +58,31 @@ app.post('/gerar-stl-pro', async (req, res) => {
                 });
             }
 
+            // 2. CATCH-ALL (Para recuperar Slides de Posição/Tamanho das Placas)
+            Object.entries(d).forEach(([k, v]) => {
+                if (!conteudoVariaveis.includes(`${k} =`) && !['id', 'ui_schema', 'forma'].includes(k)) {
+                    if (typeof v === 'number') conteudoVariaveis += `${k} = ${v};\n`;
+                    else if (typeof v === 'string' && k !== 'fonte') {
+                        conteudoVariaveis += `${k} = "${v.replace(/"/g, "'")}";\n`;
+                    }
+                }
+            });
+
+            // 3. Variáveis de Texto Fixas
             const addVar = (k, v, isStr = true) => {
                 if (!conteudoVariaveis.includes(`${k} =`)) {
                     conteudoVariaveis += isStr ? `${k} = "${v}";\n` : `${k} = ${v};\n`;
                 }
             };
-
             addVar("fonte", selecao.name);
             if (d.nome_pet) addVar("nome_pet", d.nome_pet.toUpperCase());
             if (d.telefone) addVar("telefone", d.telefone);
-            
-            Object.entries(d).forEach(([k, v]) => {
-                if (!conteudoVariaveis.includes(`${k} =`) && !['id', 'ui_schema', 'forma'].includes(k)) {
-                    if (typeof v === 'number') conteudoVariaveis += `${k} = ${v};\n`;
-                }
-            });
 
             fs.writeFileSync(scadPath, `${headerSCAD}\n$fn=24;\n${conteudoVariaveis}\n${design.scad_template}`);
 
             return new Promise((resolve, reject) => {
                 exec(`openscad --render -o "${stlPath}" "${scadPath}"`, { timeout: 60000 }, async (err, stdout, stderr) => {
-                    if (err) {
-                        console.error("Erro no SCAD:", fs.readFileSync(scadPath, 'utf8'));
-                        return reject(new Error(stderr || err.message));
-                    }
+                    if (err) return reject(new Error(stderr || err.message));
                     const buffer = fs.readFileSync(stlPath);
                     const sPath = `final/${fileId}.stl`;
                     await supabase.storage.from('makers_pro_stl_prod').upload(sPath, buffer, { contentType: 'model/stl', upsert: true });
@@ -91,19 +93,16 @@ app.post('/gerar-stl-pro', async (req, res) => {
             });
         };
 
-        const modo = d.gerar_parte || "tudo";
-
-        if (d.com_tampa === true && modo === "tudo") {
+        if (d.com_tampa === true) {
             const urlCorpo = await executarRender("corpo", "gerar_parte = \"corpo\";\n");
             const urlTampa = await executarRender("tampa", "gerar_parte = \"tampa\";\n");
             res.json({ urls: [urlCorpo, urlTampa] });
         } else {
-            const urlUnica = await executarRender("modelo", `gerar_parte = "${modo}";\n`);
+            const urlUnica = await executarRender("modelo", "gerar_parte = \"tudo\";\n");
             res.json({ url: urlUnica });
         }
 
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0');
+app.listen(process.env.PORT || 10000, '0.0.0.0');
