@@ -42,10 +42,8 @@ app.post('/gerar-stl-pro', async (req, res) => {
             const scadPath = path.join(tempDir, `${fileId}.scad`);
             const stlPath = path.join(tempDir, `${fileId}.stl`);
 
-            // --- CONSTRUÇÃO DINÂMICA DE VARIÁVEIS ---
             let conteudoVariaveis = varsExtras;
 
-            // Percorre o ui_schema para injetar variáveis do banco
             if (design.ui_schema) {
                 design.ui_schema.forEach(campo => {
                     const valor = d[campo.name] !== undefined ? d[campo.name] : campo.default;
@@ -59,7 +57,6 @@ app.post('/gerar-stl-pro', async (req, res) => {
                 });
             }
 
-            // Variáveis de Legado e globais
             const addVar = (k, v, isStr = true) => {
                 if (!conteudoVariaveis.includes(`${k} =`)) {
                     conteudoVariaveis += isStr ? `${k} = "${v}";\n` : `${k} = ${v};\n`;
@@ -70,7 +67,6 @@ app.post('/gerar-stl-pro', async (req, res) => {
             if (d.nome_pet) addVar("nome_pet", d.nome_pet.toUpperCase());
             if (d.telefone) addVar("telefone", d.telefone);
             
-            // Catch-all para sliders de posição das medalhas
             Object.entries(d).forEach(([k, v]) => {
                 if (!conteudoVariaveis.includes(`${k} =`) && !['id', 'ui_schema', 'forma'].includes(k)) {
                     if (typeof v === 'number') conteudoVariaveis += `${k} = ${v};\n`;
@@ -95,17 +91,22 @@ app.post('/gerar-stl-pro', async (req, res) => {
             });
         };
 
-        // CORREÇÃO DAS ASPAS: gerar_parte agora usa aspas duplas escapadas \"
-        if (d.com_tampa === true) {
+        // LÓGICA DE VISUALIZAÇÃO: Se vier 'gerar_parte' do frontend, respeita a escolha.
+        // Se d.gerar_parte for "tudo" e d.com_tampa for true, gera dois ficheiros.
+        const modo = d.gerar_parte || "tudo";
+
+        if (d.com_tampa === true && modo === "tudo") {
             const urlCorpo = await executarRender("corpo", "gerar_parte = \"corpo\";\n");
             const urlTampa = await executarRender("tampa", "gerar_parte = \"tampa\";\n");
             res.json({ urls: [urlCorpo, urlTampa] });
         } else {
-            const urlUnica = await executarRender("modelo", "gerar_parte = \"tudo\";\n");
+            // Renderiza apenas a parte selecionada (corpo, tampa ou tudo se for visualização simples)
+            const urlUnica = await executarRender("modelo", `gerar_parte = "${modo}";\n`);
             res.json({ url: urlUnica });
         }
 
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.listen(process.env.PORT || 10000, '0.0.0.0');
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, '0.0.0.0');
