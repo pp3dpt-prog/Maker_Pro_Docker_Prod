@@ -91,8 +91,6 @@ app.post('/gerar-stl-pro', async (req, res) => {
             });
         };
 
-        // LÓGICA DE VISUALIZAÇÃO: Se vier 'gerar_parte' do frontend, respeita a escolha.
-        // Se d.gerar_parte for "tudo" e d.com_tampa for true, gera dois ficheiros.
         const modo = d.gerar_parte || "tudo";
 
         if (d.com_tampa === true && modo === "tudo") {
@@ -100,7 +98,6 @@ app.post('/gerar-stl-pro', async (req, res) => {
             const urlTampa = await executarRender("tampa", "gerar_parte = \"tampa\";\n");
             res.json({ urls: [urlCorpo, urlTampa] });
         } else {
-            // Renderiza apenas a parte selecionada (corpo, tampa ou tudo se for visualização simples)
             const urlUnica = await executarRender("modelo", `gerar_parte = "${modo}";\n`);
             res.json({ url: urlUnica });
         }
