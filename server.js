@@ -25,10 +25,10 @@ app.post('/gerar-stl-pro', async (req, res) => {
         if (!design) return res.status(404).json({ error: "Design não encontrado" });
 
         const fontesPathMap = {
-            'Bebas': { file: 'fonts/BebasNeue-Regular.ttf', name: 'Bebas Neue' },
-            'Playfair': { file: 'fonts/PlayfairDisplay-Bold.ttf', name: 'Playfair Display' },
-            'Open Sans': { file: 'fonts/OpenSans-Bold.ttf', name: 'Open Sans' },
-            'OpenSans': { file: 'fonts/OpenSans-Bold.ttf', name: 'Open Sans' }
+            'Bebas': 'Bebas Neue',
+            'Playfair': 'Playfair Display',
+            'Open Sans': 'Open Sans',
+            'OpenSans': 'Open Sans'
         };
         const selecao = fontesPathMap[d.fonte] || fontesPathMap['Open Sans'];
         const caminhoFonte = path.resolve(__dirname, selecao.file).replace(/\\/g, '/');

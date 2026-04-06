@@ -22,9 +22,12 @@ RUN ls -l /app/templates
 RUN mkdir -p temp public/font_previews && \
     chmod -R 777 temp public/font_previews && \
     chmod -R 755 templates fonts
-
+RUN mkdir -p /usr/share/fonts/truetype/custom
+COPY fonts/*.ttf /usr/share/fonts/truetype/custom/
+COPY fonts/*.otf /usr/share/fonts/truetype/custom/
 # 5. Atualizar a cache de fontes para o OpenSCAD ver os teus .ttf
 RUN fc-cache -f -v
+RUN fc-list : family
 
 EXPOSE 10000
 CMD ["npm", "start"]

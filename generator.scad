@@ -1,9 +1,9 @@
 // --- 1. VARIÁVEIS INJETADAS PELO BACKEND ---
 // O servidor substitui estes valores com os dados do frontend [cite: 2, 3]
-nome = "REX"; 
+nome_pet = "REX"; 
 telefone = "912345678";
+fonte = "Open Sans";
 // O nome da fonte tem de ser o nome INTERNO da fonte (ex: "Arial", "Roboto", "Pacifico")
-fonte_escolhida = "Liberation Sans:style=Bold"; 
 forma = "coracao"; // O teu frontend passa "coracao", "circulo" ou "osso"
 
 // Parâmetros da Frente (Nome) [cite: 2]
@@ -21,13 +21,13 @@ z_superficie = 3.0;
 // --- 2. LÓGICA DE SELEÇÃO DA BASE ---
 // No Docker/Produção usamos caminhos relativos
 if (forma == "coracao") {
-    include <app/templates/blank_coracao.scad>;
+    include <templates/blank_coracao.scad>;
     renderizar_peca();
 } else if (forma == "circulo") {
-    include <app/templates/blank_circulo.scad>;
+    include <templates/blank_circulo.scad>;
     renderizar_peca();
 } else if (forma == "osso") {
-    include <app/templates/blank_osso.scad>;
+    include <templates/blank_osso.scad>;
     renderizar_peca();
 }
 
@@ -50,4 +50,4 @@ difference() {
 // Posicionamento dinâmico com xPos e yPos
 translate([xPos, yPos, z_superficie]) 
 linear_extrude(height = 1) 
-text(nome, size = fontSize, font = fonte, halign = "center", valign = "center");
+text(nome_pet, size = fontSize, font = fonte, halign = "center", valign = "center");
