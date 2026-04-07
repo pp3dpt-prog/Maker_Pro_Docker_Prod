@@ -27,7 +27,7 @@ COPY fonts/*.ttf /usr/share/fonts/truetype/custom/
 COPY fonts/*.otf /usr/share/fonts/truetype/custom/
 # 5. Atualizar a cache de fontes para o OpenSCAD ver os teus .ttf
 RUN fc-cache -f -v
-RUN fc-list : family
+RUN echo "--- LISTA DE FONTES INSTALADAS ---" && fc-list : family
 
 EXPOSE 10000
 CMD ["npm", "start"]

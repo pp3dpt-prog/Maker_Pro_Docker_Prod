@@ -81,14 +81,24 @@ app.post('/gerar-stl-pro', async (req, res) => {
             fs.writeFileSync(scadPath, `${headerSCAD}\n$fn=24;\n${conteudoVariaveis}\n${design.scad_template}`);
 
             return new Promise((resolve, reject) => {
+                console.log(`A executar: openscad -o "${stlPath}" "${scadPath}"`); // Log de debug 
+                
                 exec(`openscad --render -o "${stlPath}" "${scadPath}"`, { timeout: 60000 }, async (err, stdout, stderr) => {
-                    if (err) return reject(new Error(stderr || err.message));
+                    if (stdout) console.log("OpenSCAD Output:", stdout); [cite: 2]
+                    if (stderr) console.error("OpenSCAD Errors:", stderr); [cite: 2]
+
+                    if (err) {
+                        console.error("Falha Crítica no Exec:", err); [cite: 2]
+                        return reject(new Error(`Erro OpenSCAD: ${stderr || err.message}`));
+                    }
+
+                    if (!fs.existsSync(stlPath)) {
+                        return reject(new Error("O ficheiro STL não foi criado pelo OpenSCAD. Verifique os caminhos dos templates.")); [cite: 2]
+                    }
+
+                    // ... resto do código de upload para o Supabase ...
                     const buffer = fs.readFileSync(stlPath);
-                    const sPath = `final/${fileId}.stl`;
-                    await supabase.storage.from('makers_pro_stl_prod').upload(sPath, buffer, { contentType: 'model/stl', upsert: true });
-                    const { data } = supabase.storage.from('makers_pro_stl_prod').getPublicUrl(sPath);
-                    fs.unlinkSync(scadPath); fs.unlinkSync(stlPath);
-                    resolve(data.publicUrl);
+                    // ...
                 });
             });
         };
