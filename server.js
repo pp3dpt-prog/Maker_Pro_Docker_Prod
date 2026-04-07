@@ -84,16 +84,16 @@ app.post('/gerar-stl-pro', async (req, res) => {
                 console.log(`A executar: openscad -o "${stlPath}" "${scadPath}"`); // Log de debug 
                 
                 exec(`openscad --render -o "${stlPath}" "${scadPath}"`, { timeout: 60000 }, async (err, stdout, stderr) => {
-                    if (stdout) console.log("OpenSCAD Output:", stdout); [cite: 2]
-                    if (stderr) console.error("OpenSCAD Errors:", stderr); [cite: 2]
+                    if (stdout) console.log("OpenSCAD Output:", stdout);
+                    if (stderr) console.error("OpenSCAD Errors:", stderr);
 
                     if (err) {
-                        console.error("Falha Crítica no Exec:", err); [cite: 2]
+                        console.error("Falha Crítica no Exec:", err);
                         return reject(new Error(`Erro OpenSCAD: ${stderr || err.message}`));
                     }
 
                     if (!fs.existsSync(stlPath)) {
-                        return reject(new Error("O ficheiro STL não foi criado pelo OpenSCAD. Verifique os caminhos dos templates.")); [cite: 2]
+                        return reject(new Error("O ficheiro STL não foi criado pelo OpenSCAD. Verifique os caminhos dos templates."));
                     }
 
                     // ... resto do código de upload para o Supabase ...
