@@ -29,7 +29,7 @@ app.post('/gerar-stl-pro', async (req, res) => {
             'Bebas': 'Bebas Neue',
             'Playfair': 'Playfair Display',
             'Open Sans': 'Open Sans',
-            'OpenSans': 'Open Sans'
+            'BADABB': 'Badaboom BB'
         };
         const nomeFonteInterno = fontesPathMap[d.fonte] || 'Open Sans';
 
@@ -42,7 +42,7 @@ app.post('/gerar-stl-pro', async (req, res) => {
             const stlPath = path.join(tempDir, `${fileId}.stl`);
 
             // Construção das variáveis para o OpenSCAD
-            let conteudoVariaveis = varsExtras;
+            const conteudoVariaveis = `fonte = "${nomeFonteInterno}";\n` + varsExtras;
             
             // Injetar variáveis do UI_SCHEMA e CATCH-ALL
             Object.entries(d).forEach(([k, v]) => {
@@ -91,6 +91,7 @@ app.post('/gerar-stl-pro', async (req, res) => {
         res.status(500).json({ error: e.message }); 
     }
 });
+app.get('/', (req, res) => res.send('Render Health Check OK'));
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Porta: ${PORT}`));
