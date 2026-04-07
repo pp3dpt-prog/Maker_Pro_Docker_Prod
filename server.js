@@ -6,14 +6,14 @@ const fs = require('fs');
 const cors = require('cors');
 
 const app = express();
-app.use(cors({ origin: '*', methods: ['GET', 'POST', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] }));
+app.use(cors({ origin: '*', methods: ['GET', 'POST', 'OPTIONS'] }));
 app.use(express.json());
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
 app.post('/gerar-stl-pro', async (req, res) => {
     const d = req.body;
-    const designId = d.id || d.forma; 
+    const designId = d.id; 
 
     try {
         const { data: design } = await supabase
@@ -24,15 +24,14 @@ app.post('/gerar-stl-pro', async (req, res) => {
 
         if (!design) return res.status(404).json({ error: "Design não encontrado" });
 
+        // Mapeamento para nomes internos do sistema
         const fontesPathMap = {
             'Bebas': 'Bebas Neue',
             'Playfair': 'Playfair Display',
             'Open Sans': 'Open Sans',
             'OpenSans': 'Open Sans'
         };
-        const selecao = fontesPathMap[d.fonte] || fontesPathMap['Open Sans'];
-        const caminhoFonte = path.resolve(__dirname, selecao.file).replace(/\\/g, '/');
-        let headerSCAD = fs.existsSync(caminhoFonte) ? `use <${caminhoFonte}>\n` : "";
+        const nomeFonteInterno = fontesPathMap[d.fonte] || 'Open Sans';
 
         const executarRender = async (prefixo, varsExtras = "") => {
             const fileId = `${prefixo}_${Date.now()}`;
@@ -42,80 +41,56 @@ app.post('/gerar-stl-pro', async (req, res) => {
             const scadPath = path.join(tempDir, `${fileId}.scad`);
             const stlPath = path.join(tempDir, `${fileId}.stl`);
 
+            // Construção das variáveis para o OpenSCAD
             let conteudoVariaveis = varsExtras;
-
-            // 1. Injetar UI_SCHEMA (Para Caixas/Paramétricos)
-            if (design.ui_schema) {
-                design.ui_schema.forEach(campo => {
-                    const valor = d[campo.name] !== undefined ? d[campo.name] : campo.default;
-                    if (typeof valor === 'string') {
-                        conteudoVariaveis += `${campo.name} = "${valor.replace(/"/g, "'")}";\n`;
-                    } else if (typeof valor === 'boolean') {
-                        conteudoVariaveis += `${campo.name} = ${valor ? "true" : "false"};\n`;
-                    } else {
-                        conteudoVariaveis += `${campo.name} = ${valor};\n`;
-                    }
-                });
-            }
-
-            // 2. CATCH-ALL (Para recuperar Slides de Posição/Tamanho das Placas)
+            
+            // Injetar variáveis do UI_SCHEMA e CATCH-ALL
             Object.entries(d).forEach(([k, v]) => {
-                if (!conteudoVariaveis.includes(`${k} =`) && !['id', 'ui_schema', 'forma'].includes(k)) {
+                if (!['id', 'ui_schema', 'fonte'].includes(k)) {
                     if (typeof v === 'number') conteudoVariaveis += `${k} = ${v};\n`;
-                    else if (typeof v === 'string' && k !== 'fonte') {
-                        conteudoVariaveis += `${k} = "${v.replace(/"/g, "'")}";\n`;
-                    }
+                    else if (typeof v === 'boolean') conteudoVariaveis += `${k} = ${v ? "true" : "false"};\n`;
+                    else if (typeof v === 'string') conteudoVariaveis += `${k} = "${v.replace(/"/g, "'")}";\n`;
                 }
             });
 
-            // 3. Variáveis de Texto Fixas
-            const addVar = (k, v, isStr = true) => {
-                if (!conteudoVariaveis.includes(`${k} =`)) {
-                    conteudoVariaveis += isStr ? `${k} = "${v}";\n` : `${k} = ${v};\n`;
-                }
-            };
-            addVar("fonte", selecao.name);
-            if (d.nome_pet) addVar("nome_pet", d.nome_pet.toUpperCase());
-            if (d.telefone) addVar("telefone", d.telefone);
+            // Forçar variáveis de texto e fonte
+            conteudoVariaveis += `fonte = "${nomeFonteInterno}";\n`;
+            if (d.nome_pet) conteudoVariaveis += `nome_pet = "${d.nome_pet.toUpperCase()}";\n`;
 
-            fs.writeFileSync(scadPath, `${headerSCAD}\n$fn=24;\n${conteudoVariaveis}\n${design.scad_template}`);
+            // Escrever ficheiro temporário (sem comando 'use', as fontes são globais)
+            fs.writeFileSync(scadPath, `$fn=24;\n${conteudoVariaveis}\n${design.scad_template}`);
 
             return new Promise((resolve, reject) => {
-                console.log(`A executar: openscad -o "${stlPath}" "${scadPath}"`); // Log de debug 
-                
-                exec(`openscad --render -o "${stlPath}" "${scadPath}"`, { timeout: 60000 }, async (err, stdout, stderr) => {
-                    if (stdout) console.log("OpenSCAD Output:", stdout);
-                    if (stderr) console.error("OpenSCAD Errors:", stderr);
-
+                console.log(`Renderizando STL para: ${d.nome_pet || 'sem_nome'}`);
+                exec(`openscad --render -o "${stlPath}" "${scadPath}"`, { timeout: 55000 }, async (err, stdout, stderr) => {
                     if (err) {
-                        console.error("Falha Crítica no Exec:", err);
-                        return reject(new Error(`Erro OpenSCAD: ${stderr || err.message}`));
+                        console.error("Erro OpenSCAD:", stderr);
+                        return reject(new Error("Falha na geração 3D"));
                     }
 
-                    if (!fs.existsSync(stlPath)) {
-                        return reject(new Error("O ficheiro STL não foi criado pelo OpenSCAD. Verifique os caminhos dos templates."));
-                    }
-
-                    // ... resto do código de upload para o Supabase ...
                     const buffer = fs.readFileSync(stlPath);
-                    // ...
+                    const sPath = `final/${fileId}.stl`;
+                    
+                    const { error: upErr } = await supabase.storage.from('makers_pro_stl_prod').upload(sPath, buffer, { contentType: 'model/stl', upsert: true });
+                    if (upErr) return reject(upErr);
+
+                    const { data } = supabase.storage.from('makers_pro_stl_prod').getPublicUrl(sPath);
+                    
+                    // Limpeza
+                    try { fs.unlinkSync(scadPath); fs.unlinkSync(stlPath); } catch (e) {}
+                    resolve(data.publicUrl);
                 });
             });
         };
 
-        if (d.com_tampa === true) {
-            const urlCorpo = await executarRender("corpo", "gerar_parte = \"corpo\";\n");
-            const urlTampa = await executarRender("tampa", "gerar_parte = \"tampa\";\n");
-            res.json({ urls: [urlCorpo, urlTampa] });
-        } else {
-            const urlUnica = await executarRender("modelo", "gerar_parte = \"tudo\";\n");
-            res.json({ url: urlUnica });
-        }
+        const url = await executarRender("modelo", `gerar_parte = "tudo";\n`);
+        res.json({ url });
 
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { 
+        console.error("Erro no processo:", e.message);
+        res.status(500).json({ error: e.message }); 
+    }
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Servidor a correr na porta ${PORT}`);
-});
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Porta: ${PORT}`));
