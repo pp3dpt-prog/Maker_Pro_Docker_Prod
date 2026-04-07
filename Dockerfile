@@ -1,6 +1,6 @@
 FROM node:20-bullseye-slim
 
-# 1. Instalar OpenSCAD e utilitários de fontes (Essencial para o comando fc-list)
+# 1. Instalar dependências do sistema
 RUN apt-get update && apt-get install -y \
     openscad \
     fontconfig \
@@ -8,30 +8,28 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# 2. Instalar dependências primeiro (Otimiza a cache do Docker)
+# 2. Instalar Node dependencies
 COPY package*.json ./
 RUN npm install
 
-# 3. Copiar o resto dos ficheiros
+# 3. Copiar ficheiros do projeto
 COPY . .
 
-# 4. Configurar pastas e permissões (Tudo num único passo para evitar erros)
-RUN mkdir -p temp templates fonts public/font_previews && \
-    chmod -R 777 temp public/font_previews && \
+# 4. Criar pastas e dar permissões
+RUN mkdir -p temp templates fonts && \
+    chmod -R 777 temp && \
     chmod -R 755 templates fonts
 
-# 5. Instalar fontes no sistema
-# Criamos a pasta, copiamos os ficheiros e atualizamos a cache
+# 5. Instalar Fontes (Método Limpo)
 RUN mkdir -p /usr/share/fonts/truetype/custom && \
-    cp /app/fonts/*.ttf /usr/share/fonts/truetype/custom/ 2>/dev/null || true && \
-    cp /app/fonts/*.otf /usr/share/fonts/truetype/custom/ 2>/dev/null || true && \
+    find /app/fonts -name "*.[to]tf" -exec cp {} /usr/share/fonts/truetype/custom/ \; && \
     fc-cache -f -v
 
-# 6. LOG CRÍTICO: Isto TEM de aparecer no log de Build do Render
-RUN echo "--- VERIFICACAO DE FONTES NO SISTEMA ---" && \
-    fc-list : family | grep -E "Bebas|Open|Playfair" || echo "AVISO: Nenhuma fonte detectada!"
+# 6. VERIFICAÇÃO (Este é o log que eu preciso de ver)
+RUN echo "--- VERIFICACAO DE FONTES ---" && \
+    fc-list : family | grep -iE "Bebas|Open|Playfair" || echo "ERRO: Fontes nao encontradas na pasta /app/fonts"
 
 EXPOSE 10000
 
-# Usar node diretamente evita o overhead do npm e ajuda com o SIGTERM no Render
+# Usar node diretamente é mais leve que npm start
 CMD ["node", "server.js"]
