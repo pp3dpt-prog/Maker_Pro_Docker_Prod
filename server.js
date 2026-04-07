@@ -13,7 +13,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 
 app.post('/gerar-stl-pro', async (req, res) => {
     const d = req.body;
-    const designId = d.id; 
+    let designId = d.id || d.forma; 
 
     try {
         const { data: design } = await supabase
@@ -24,13 +24,13 @@ app.post('/gerar-stl-pro', async (req, res) => {
 
         if (!design) return res.status(404).json({ error: "Design não encontrado" });
 
-        // Mapeamento para nomes internos do sistema
         const fontesPathMap = {
             'Bebas': 'Bebas Neue',
             'Playfair': 'Playfair Display',
             'Open Sans': 'Open Sans',
             'BADABB': 'Badaboom BB'
         };
+
         const nomeFonteInterno = fontesPathMap[d.fonte] || 'Open Sans';
 
         const executarRender = async (prefixo, varsExtras = "") => {
@@ -41,57 +41,56 @@ app.post('/gerar-stl-pro', async (req, res) => {
             const scadPath = path.join(tempDir, `${fileId}.scad`);
             const stlPath = path.join(tempDir, `${fileId}.stl`);
 
-            // Construção das variáveis para o OpenSCAD
-            const conteudoVariaveis = `fonte = "${nomeFonteInterno}";\n` + varsExtras;
-            
-            // Injetar variáveis do UI_SCHEMA e CATCH-ALL
+            // Definido como LET para permitir concatenação (evita erro de constante)
+            let conteudoVariaveis = varsExtras;
+
             Object.entries(d).forEach(([k, v]) => {
                 if (!['id', 'ui_schema', 'fonte'].includes(k)) {
                     if (typeof v === 'number') conteudoVariaveis += `${k} = ${v};\n`;
-                    else if (typeof v === 'boolean') conteudoVariaveis += `${k} = ${v ? "true" : "false"};\n`;
                     else if (typeof v === 'string') conteudoVariaveis += `${k} = "${v.replace(/"/g, "'")}";\n`;
+                    else if (typeof v === 'boolean') conteudoVariaveis += `${k} = ${v ? "true" : "false"};\n`;
                 }
             });
 
-            // Forçar variáveis de texto e fonte
             conteudoVariaveis += `fonte = "${nomeFonteInterno}";\n`;
             if (d.nome_pet) conteudoVariaveis += `nome_pet = "${d.nome_pet.toUpperCase()}";\n`;
 
-            // Escrever ficheiro temporário (sem comando 'use', as fontes são globais)
             fs.writeFileSync(scadPath, `$fn=24;\n${conteudoVariaveis}\n${design.scad_template}`);
 
             return new Promise((resolve, reject) => {
-                console.log(`Renderizando STL para: ${d.nome_pet || 'sem_nome'}`);
                 exec(`openscad --render -o "${stlPath}" "${scadPath}"`, { timeout: 55000 }, async (err, stdout, stderr) => {
-                    if (err) {
-                        console.error("Erro OpenSCAD:", stderr);
-                        return reject(new Error("Falha na geração 3D"));
-                    }
+                    if (err) return reject(new Error(`Falha na renderização: ${stderr}`));
+                    if (!fs.existsSync(stlPath)) return reject(new Error("Ficheiro STL não gerado"));
 
                     const buffer = fs.readFileSync(stlPath);
                     const sPath = `final/${fileId}.stl`;
-                    
-                    const { error: upErr } = await supabase.storage.from('makers_pro_stl_prod').upload(sPath, buffer, { contentType: 'model/stl', upsert: true });
-                    if (upErr) return reject(upErr);
 
+                    const { error: upErr } = await supabase.storage
+                        .from('makers_pro_stl_prod')
+                        .upload(sPath, buffer, { contentType: 'model/stl', upsert: true });
+
+                    if (upErr) return reject(upErr);
                     const { data } = supabase.storage.from('makers_pro_stl_prod').getPublicUrl(sPath);
                     
-                    // Limpeza
                     try { fs.unlinkSync(scadPath); fs.unlinkSync(stlPath); } catch (e) {}
                     resolve(data.publicUrl);
                 });
             });
         };
 
-        const url = await executarRender("modelo", `gerar_parte = "tudo";\n`);
-        res.json({ url });
-
-    } catch (e) { 
-        console.error("Erro no processo:", e.message);
-        res.status(500).json({ error: e.message }); 
+        if (d.com_tampa === true) {
+            const urlCorpo = await executarRender("corpo", 'gerar_parte = "corpo";\n');
+            const urlTampa = await executarRender("tampa", 'gerar_parte = "tampa";\n');
+            res.json({ urls: [urlCorpo, urlTampa] });
+        } else {
+            const url = await executarRender("modelo", 'gerar_parte = "tudo";\n');
+            res.json({ url });
+        }
+    } catch (e) {
+        res.status(500).json({ error: e.message });
     }
 });
-app.get('/', (req, res) => res.send('Render Health Check OK'));
 
+app.get('/', (req, res) => res.send('OK'));
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Porta: ${PORT}`));
