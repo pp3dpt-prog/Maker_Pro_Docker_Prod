@@ -41,7 +41,7 @@ app.post('/gerar-stl-pro', async (req, res) => {
             const scadPath = path.join(tempDir, `${fileId}.scad`);
             const stlPath = path.join(tempDir, `${fileId}.stl`);
 
-            // Definido como LET para permitir concatenação (evita erro de constante)
+            // LET para permitir concatenação
             let conteudoVariaveis = varsExtras;
 
             Object.entries(d).forEach(([k, v]) => {
