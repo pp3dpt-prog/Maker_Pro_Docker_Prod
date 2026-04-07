@@ -115,4 +115,7 @@ app.post('/gerar-stl-pro', async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.listen(process.env.PORT || 10000, '0.0.0.0');
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Servidor a correr na porta ${PORT}`);
+});
