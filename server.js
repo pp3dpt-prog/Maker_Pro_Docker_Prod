@@ -9,13 +9,8 @@ const app = express();
 app.use(cors({ origin: '*', methods: ['GET', 'POST', 'OPTIONS'] }));
 app.use(express.json());
 
-// Cliente Supabase com Service Role para permissões de escrita e storage
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
-/**
- * Função auxiliar para guardar o ficheiro .scad (o DNA do objeto) no Vault.
- * Isto permite regenerar o STL no futuro sem pedir novos créditos.
- */
 async function guardarNoVault(fileId, conteudoScad) {
     const sPath = `vault/${fileId}.scad`;
     const { error } = await supabase.storage
@@ -27,16 +22,11 @@ async function guardarNoVault(fileId, conteudoScad) {
 app.post('/gerar-stl-pro', async (req, res) => {
     const d = req.body;
     let designId = d.id || d.forma; 
-    
-    // Novo parâmetro para identificar se estamos a recuperar um ficheiro arquivado
     const scadVaultPath = d.scad_vault_path; 
-    // ID do utilizador é essencial para registar a posse do design
     const userId = d.user_id;
 
     try {
         let scadTemplate = "";
-        
-        // Se não for ressurreição, precisamos de buscar o template original na BD
         if (!scadVaultPath) {
             const { data: design } = await supabase
                 .from('prod_designs')
@@ -49,18 +39,18 @@ app.post('/gerar-stl-pro', async (req, res) => {
         }
 
         const fontesPathMap = {
-            'Bebas': 'Bebas Neue',
-            'Playfair': 'Playfair Display',
-            'Open Sans': 'Open Sans',
-            'Beaver Punch': 'Beaver Punch',
-            'GABRWFER': 'Gabriel Weiss Friends',
-            'Megadeth': 'Megadeth'
+            'Bebas': 'Bebas Neue', 'Playfair': 'Playfair Display', 'Open Sans': 'Open Sans',
+            'Beaver Punch': 'Beaver Punch', 'GABRWFER': 'Gabriel Weiss Friends', 'Megadeth': 'Megadeth'
         };
 
         const nomeFonteInterno = fontesPathMap[d.fonte] || 'Open Sans';
 
         const executarRender = async (prefixo, varsExtras = "") => {
-            const fileId = `${prefixo}_${Date.now()}`;
+            // Criar um fileId limpo: forma_petname_data
+            const sanitize = (str) => String(str).replace(/[^a-z0-9]/gi, '_').toLowerCase();
+            const petName = d.nome_pet ? sanitize(d.nome_pet) : 'objeto';
+            const fileId = `${prefixo}_${sanitize(designId)}_${petName}_${Date.now()}`;
+            
             const tempDir = path.join(__dirname, 'temp');
             if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
 
@@ -70,93 +60,68 @@ app.post('/gerar-stl-pro', async (req, res) => {
             let conteudoFinalScad = "";
             let finalVaultPath = scadVaultPath;
 
-            // CENÁRIO A: Recuperar do Vault (Arquivo com mais de 30 dias)
             if (scadVaultPath) {
                 const { data: scadBuffer, error: dlErr } = await supabase.storage
                     .from('makers_pro_stl_prod')
                     .download(scadVaultPath);
-                
-                if (dlErr) throw new Error("Não foi possível recuperar o ficheiro do Vault");
+                if (dlErr) throw new Error("Erro ao baixar do Vault");
                 conteudoFinalScad = await scadBuffer.text();
-            } 
-            // CENÁRIO B: Novo Design (Primeira renderização)
-            else {
+            } else {
                 let conteudoVariaveis = varsExtras;
                 Object.entries(d).forEach(([k, v]) => {
-                    // Ignoramos campos internos do sistema para não poluir o SCAD
                     if (!['id', 'ui_schema', 'fonte', 'scad_vault_path', 'user_id', 'nome_personalizado'].includes(k)) {
                         if (typeof v === 'number') conteudoVariaveis += `${k} = ${v};\n`;
                         else if (typeof v === 'string') conteudoVariaveis += `${k} = "${v.replace(/"/g, "'")}";\n`;
                         else if (typeof v === 'boolean') conteudoVariaveis += `${k} = ${v ? "true" : "false"};\n`;
                     }
                 });
-
                 conteudoVariaveis += `fonte = "${nomeFonteInterno}";\n`;
                 if (d.nome_pet) conteudoVariaveis += `nome_pet = "${d.nome_pet.toUpperCase()}";\n`;
                 
                 conteudoFinalScad = `$fn=24;\n${conteudoVariaveis}\n${scadTemplate}`;
-                
-                // Guardamos o .scad permanentemente no Vault
                 finalVaultPath = await guardarNoVault(fileId, conteudoFinalScad);
             }
 
             fs.writeFileSync(scadPath, conteudoFinalScad);
 
             return new Promise((resolve, reject) => {
-                // Timeout de 80s para garantir que peças complexas terminam
                 exec(`openscad --render -o "${stlPath}" "${scadPath}"`, { timeout: 80000 }, async (err, stdout, stderr) => {
-                    if (err) return reject(new Error(`Falha na renderização: ${stderr}`));
-                    if (!fs.existsSync(stlPath)) return reject(new Error("Ficheiro STL não gerado"));
-
+                    if (err) return reject(new Error(`Erro OpenSCAD: ${stderr}`));
+                    
                     const buffer = fs.readFileSync(stlPath);
                     const sPath = `final/${fileId}.stl`;
 
-                    // Upload do ficheiro STL final para o Storage
                     const { error: upErr } = await supabase.storage
                         .from('makers_pro_stl_prod')
                         .upload(sPath, buffer, { contentType: 'model/stl', upsert: true });
 
                     if (upErr) return reject(upErr);
-                    
                     const { data } = supabase.storage.from('makers_pro_stl_prod').getPublicUrl(sPath);
                     const publicUrl = data.publicUrl;
 
-                    // REGISTO NA ÁREA DE CLIENTE (prod_user_assets)
-                    // Só registamos se houver um utilizador logado e se não for uma ressurreição (para não duplicar)
+                    // Registo na Área de Cliente
                     if (userId && !scadVaultPath) {
-                        await supabase
-                            .from('prod_user_assets')
-                            .insert([{
-                                user_id: userId,
-                                design_id: designId,
-                                nome_personalizado: d.nome_personalizado || "Novo Design",
-                                scad_vault_path: finalVaultPath,
-                                stl_url: publicUrl,
-                                is_archived: false,
-                                last_rendered_at: new Date().toISOString()
-                            }]);
-                    } 
-                    // Se for ressurreição, apenas atualizamos o status do asset existente
-                    else if (scadVaultPath) {
-                        await supabase
-                            .from('prod_user_assets')
-                            .update({ 
-                                stl_url: publicUrl, 
-                                is_archived: false, 
-                                last_rendered_at: new Date().toISOString() 
-                            })
+                        await supabase.from('prod_user_assets').insert([{
+                            user_id: userId,
+                            design_id: designId,
+                            nome_personalizado: d.nome_personalizado, // forma_petname vindo do front
+                            scad_vault_path: finalVaultPath,
+                            stl_url: publicUrl,
+                            is_archived: false,
+                            last_rendered_at: new Date().toISOString()
+                        }]);
+                    } else if (scadVaultPath) {
+                        await supabase.from('prod_user_assets')
+                            .update({ stl_url: publicUrl, is_archived: false, last_rendered_at: new Date().toISOString() })
                             .eq('scad_vault_path', scadVaultPath);
                     }
 
-                    // Limpeza de ficheiros temporários no servidor Docker
                     try { fs.unlinkSync(scadPath); fs.unlinkSync(stlPath); } catch (e) {}
-                    
                     resolve(publicUrl);
                 });
             });
         };
 
-        // Lógica de Tampa/Corpo (Funcionalidade Original Mantida)
         if (d.com_tampa === true && !scadVaultPath) {
             const urlCorpo = await executarRender("corpo", 'gerar_parte = "corpo";\n');
             const urlTampa = await executarRender("tampa", 'gerar_parte = "tampa";\n');
@@ -165,14 +130,10 @@ app.post('/gerar-stl-pro', async (req, res) => {
             const url = await executarRender("modelo", 'gerar_parte = "tudo";\n');
             res.json({ url });
         }
-
     } catch (e) {
-        console.error("Erro no Processo:", e.message);
         res.status(500).json({ error: e.message });
     }
 });
 
-app.get('/', (req, res) => res.send('Servidor Maker Pro Ativo com Sistema de Vault'));
-
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Servidor a correr na porta: ${PORT}`));
+app.get('/', (req, res) => res.send('Servidor Maker Pro Ativo'));
+app.listen(process.env.PORT || 10000, '0.0.0.0');
