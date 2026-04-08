@@ -28,7 +28,9 @@ app.post('/gerar-stl-pro', async (req, res) => {
             'Bebas': 'Bebas Neue',
             'Playfair': 'Playfair Display',
             'Open Sans': 'Open Sans',
-            'BADABB': 'Badaboom BB'
+            'Beaver Punch': 'Beaver Punch',
+            'GABRWFER': 'Gabriel Weiss Friends',
+            'Megadeth': 'Megadeth'
         };
 
         const nomeFonteInterno = fontesPathMap[d.fonte] || 'Open Sans';
