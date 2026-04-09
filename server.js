@@ -133,7 +133,5 @@ app.post('/gerar-stl-pro', async (req, res) => {
     }
 });
 
-app.get('/', (req, res) => res.send('Servidor Maker Pro Ativo com Vault e Custo Variável'));
-
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Porta: ${PORT}`));
+app.get('/', (req, res) => res.send('Servidor Maker Pro Ativo com Medidas Restauradas'));
+app.listen(process.env.PORT || 10000, '0.0.0.0');
