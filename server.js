@@ -9,8 +9,12 @@ const app = express();
 app.use(cors({ origin: '*', methods: ['GET', 'POST', 'OPTIONS'] }));
 app.use(express.json());
 
+// Cliente Supabase com Service Role para permissões totais
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
+/**
+ * Guarda o ficheiro .scad no Vault para uso futuro
+ */
 async function guardarNoVault(fileId, conteudoScad) {
     const sPath = `vault/${fileId}.scad`;
     const { error } = await supabase.storage
@@ -22,10 +26,25 @@ async function guardarNoVault(fileId, conteudoScad) {
 app.post('/gerar-stl-pro', async (req, res) => {
     const d = req.body;
     let designId = d.id || d.forma; 
-    const scadVaultPath = d.scad_vault_path; 
     const userId = d.user_id;
+    const custo = d.custo || 1; // Recebe o custo do frontend
+    const scadVaultPath = d.scad_vault_path; 
 
     try {
+        // --- 1. VALIDAÇÃO DE SALDO NO SERVIDOR ---
+        if (userId && !scadVaultPath) {
+            const { data: perfil, error: perfilErr } = await supabase
+                .from('prod_perfis')
+                .select('creditos_disponiveis')
+                .eq('id', userId)
+                .single();
+
+            if (perfilErr || !perfil) throw new Error("Perfil não encontrado");
+            if (perfil.creditos_disponiveis < custo) {
+                return res.status(400).json({ error: "Saldo insuficiente no servidor" });
+            }
+        }
+
         let scadTemplate = "";
         if (!scadVaultPath) {
             const { data: design } = await supabase
@@ -39,17 +58,18 @@ app.post('/gerar-stl-pro', async (req, res) => {
         }
 
         const fontesPathMap = {
-            'Bebas': 'Bebas Neue', 'Playfair': 'Playfair Display', 'Open Sans': 'Open Sans',
-            'Beaver Punch': 'Beaver Punch', 'GABRWFER': 'Gabriel Weiss Friends', 'Megadeth': 'Megadeth'
+            'Bebas': 'Bebas Neue',
+            'Playfair': 'Playfair Display',
+            'Open Sans': 'Open Sans',
+            'Beaver Punch': 'Beaver Punch',
+            'GABRWFER': 'Gabriel Weiss Friends',
+            'Megadeth': 'Megadeth'
         };
 
         const nomeFonteInterno = fontesPathMap[d.fonte] || 'Open Sans';
 
         const executarRender = async (prefixo, varsExtras = "") => {
-            const sanitize = (str) => String(str).replace(/[^a-z0-9]/gi, '_').toLowerCase();
-            const petName = d.nome_pet ? sanitize(d.nome_pet) : 'objeto';
-            const fileId = `${prefixo}_${sanitize(designId)}_${petName}_${Date.now()}`;
-            
+            const fileId = `${prefixo}_${Date.now()}`;
             const tempDir = path.join(__dirname, 'temp');
             if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
 
@@ -63,12 +83,12 @@ app.post('/gerar-stl-pro', async (req, res) => {
                 const { data: scadBuffer, error: dlErr } = await supabase.storage
                     .from('makers_pro_stl_prod')
                     .download(scadVaultPath);
-                if (dlErr) throw new Error("Erro ao baixar do Vault");
+                if (dlErr) throw new Error("Erro ao recuperar do Vault");
                 conteudoFinalScad = await scadBuffer.text();
             } else {
                 let conteudoVariaveis = varsExtras;
                 Object.entries(d).forEach(([k, v]) => {
-                    if (!['id', 'ui_schema', 'fonte', 'scad_vault_path', 'user_id', 'nome_personalizado'].includes(k)) {
+                    if (!['id', 'ui_schema', 'fonte', 'scad_vault_path', 'user_id', 'nome_personalizado', 'custo'].includes(k)) {
                         if (typeof v === 'number') conteudoVariaveis += `${k} = ${v};\n`;
                         else if (typeof v === 'string') conteudoVariaveis += `${k} = "${v.replace(/"/g, "'")}";\n`;
                         else if (typeof v === 'boolean') conteudoVariaveis += `${k} = ${v ? "true" : "false"};\n`;
@@ -85,53 +105,57 @@ app.post('/gerar-stl-pro', async (req, res) => {
 
             return new Promise((resolve, reject) => {
                 exec(`openscad --render -o "${stlPath}" "${scadPath}"`, { timeout: 80000 }, async (err, stdout, stderr) => {
-                    if (err) return reject(new Error(`Erro OpenSCAD: ${stderr}`));
+                    if (err) return reject(new Error(`Falha na renderização: ${stderr}`));
                     
                     const buffer = fs.readFileSync(stlPath);
                     const sPath = `final/${fileId}.stl`;
 
-                    const { error: upErr } = await supabase.storage
-                        .from('makers_pro_stl_prod')
-                        .upload(sPath, buffer, { contentType: 'model/stl', upsert: true });
-
-                    if (upErr) return reject(upErr);
+                    await supabase.storage.from('makers_pro_stl_prod').upload(sPath, buffer, { contentType: 'model/stl', upsert: true });
                     const { data } = supabase.storage.from('makers_pro_stl_prod').getPublicUrl(sPath);
                     const publicUrl = data.publicUrl;
 
+                    // --- 2. ATUALIZAÇÃO DE SALDO E REGISTO DE GASTOS ---
                     if (userId && !scadVaultPath) {
+                        // Subtrair créditos
+                        const { data: perfilAtual } = await supabase.from('prod_perfis').select('creditos_disponiveis').eq('id', userId).single();
+                        const novoSaldo = (perfilAtual?.creditos_disponiveis || 0) - custo;
+                        
+                        await supabase.from('prod_perfis').update({ creditos_disponiveis: novoSaldo }).eq('id', userId);
+
+                        // Registar o Asset com o custo pago
                         await supabase.from('prod_user_assets').insert([{
                             user_id: userId,
                             design_id: designId,
-                            nome_personalizado: d.nome_personalizado,
+                            nome_personalizado: d.nome_personalizado || "Novo Design",
                             scad_vault_path: finalVaultPath,
                             stl_url: publicUrl,
-                            is_archived: false,
+                            custo_pago: custo, 
                             last_rendered_at: new Date().toISOString()
                         }]);
-                    } else if (scadVaultPath) {
-                        await supabase.from('prod_user_assets')
-                            .update({ stl_url: publicUrl, is_archived: false, last_rendered_at: new Date().toISOString() })
-                            .eq('scad_vault_path', scadVaultPath);
                     }
 
                     try { fs.unlinkSync(scadPath); fs.unlinkSync(stlPath); } catch (e) {}
-                    resolve(publicUrl);
+                    resolve({ publicUrl, finalVaultPath });
                 });
             });
         };
 
         if (d.com_tampa === true && !scadVaultPath) {
-            const urlCorpo = await executarRender("corpo", 'gerar_parte = "corpo";\n');
-            const urlTampa = await executarRender("tampa", 'gerar_parte = "tampa";\n');
-            res.json({ urls: [urlCorpo, urlTampa] });
+            const corpo = await executarRender("corpo", 'gerar_parte = "corpo";\n');
+            const tampa = await executarRender("tampa", 'gerar_parte = "tampa";\n');
+            res.json({ urls: [corpo.publicUrl, tampa.publicUrl] });
         } else {
-            const url = await executarRender("modelo", 'gerar_parte = "tudo";\n');
-            res.json({ url });
+            const resultado = await executarRender("modelo", 'gerar_parte = "tudo";\n');
+            res.json({ url: resultado.publicUrl });
         }
+
     } catch (e) {
+        console.error("Erro:", e.message);
         res.status(500).json({ error: e.message });
     }
 });
 
-app.get('/', (req, res) => res.send('Servidor Maker Pro Ativo com Medidas Restauradas'));
-app.listen(process.env.PORT || 10000, '0.0.0.0');
+app.get('/', (req, res) => res.send('Servidor Maker Pro Ativo - Sistema de Créditos e Vault'));
+
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Porta: ${PORT}`));
