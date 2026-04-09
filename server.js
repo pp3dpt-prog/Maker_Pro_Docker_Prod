@@ -9,13 +9,14 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// IMPORTANTE: Usar SERVICE_ROLE_KEY no Docker para ignorar o RLS
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
 app.post('/gerar-stl-pro', async (req, res) => {
     const { user_id, id: produtoId, custo, ...params } = req.body;
 
     try {
-        // 1. BUSCA PERFIL (Nomes exatos da tua tabela image_b8606b.png)
+        // Busca usando o nome exato da tua coluna: creditos_disponiveis
         const { data: perfil, error: pErr } = await supabase
             .from('prod_perfis')
             .select('creditos_disponiveis')
@@ -23,20 +24,24 @@ app.post('/gerar-stl-pro', async (req, res) => {
             .single();
 
         if (pErr || !perfil) {
-            return res.status(404).json({ error: "Perfil não encontrado no Supabase." });
+            console.error("User ID não encontrado:", user_id);
+            return res.status(404).json({ error: "Perfil não encontrado na tabela prod_perfis." });
         }
 
-        // 2. RENDERIZAÇÃO OPENSCAD
+        if (perfil.creditos_disponiveis < (custo || 1)) {
+            return res.status(400).json({ error: "Saldo insuficiente." });
+        }
+
+        // Lógica de Renderização OpenSCAD
         const outPath = path.join(__dirname, 'tmp', `${Date.now()}.stl`);
         const scadPath = path.join(__dirname, 'scads', `${produtoId}.scad`);
-        
         let vars = "";
         Object.entries(params).forEach(([k, v]) => {
             vars += typeof v === 'string' ? ` -D '${k}="${v}"'` : ` -D '${k}=${v}'`;
         });
 
         exec(`openscad -o "${outPath}" ${vars} "${scadPath}"`, async (err) => {
-            if (err) return res.status(500).json({ error: "Erro OpenSCAD." });
+            if (err) return res.status(500).json({ error: "Erro de renderização." });
 
             const fileBuffer = fs.readFileSync(outPath);
             const storagePath = `users/${user_id}/${Date.now()}.stl`;
@@ -44,7 +49,7 @@ app.post('/gerar-stl-pro', async (req, res) => {
             await supabase.storage.from('designs-vault').upload(storagePath, fileBuffer);
             const { data: urlData } = supabase.storage.from('designs-vault').getPublicUrl(storagePath);
 
-            // 3. ATUALIZAÇÃO DE SALDO (creditos_disponiveis)
+            // Atualiza a coluna correta: creditos_disponiveis
             const novoSaldo = perfil.creditos_disponiveis - (custo || 1);
             await supabase.from('prod_perfis').update({ creditos_disponiveis: novoSaldo }).eq('id', user_id);
 
@@ -52,7 +57,7 @@ app.post('/gerar-stl-pro', async (req, res) => {
             res.json({ url: urlData.publicUrl, novoSaldo });
         });
     } catch (e) {
-        res.status(500).json({ error: "Erro interno." });
+        res.status(500).json({ error: "Erro interno no servidor." });
     }
 });
 
