@@ -1,161 +1,172 @@
-const express = require('express');
-const { exec } = require('child_process');
-const { createClient } = require('@supabase/supabase-js');
-const path = require('path');
-const fs = require('fs');
-const cors = require('cors');
+'use client';
+import { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabase';
 
-const app = express();
-app.use(cors({ origin: '*', methods: ['GET', 'POST', 'OPTIONS'] }));
-app.use(express.json());
+export default function EditorControls({ produto, perfil, onUpdate, onGerarSucesso, stlUrl }: any) {
+  const [loading, setLoading] = useState(false);
+  const [localValores, setLocalValores] = useState<any>({});
+  const [saldoAtual, setSaldoAtual] = useState(perfil?.creditos_disponiveis ?? 0);
 
-// Cliente Supabase com Service Role para permissões totais
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+  const custoDinamico = produto.custo_creditos ?? 1;
 
-/**
- * Guarda o ficheiro .scad no Vault para uso futuro
- */
-async function guardarNoVault(fileId, conteudoScad) {
-    const sPath = `vault/${fileId}.scad`;
-    const { error } = await supabase.storage
-        .from('makers_pro_stl_prod')
-        .upload(sPath, conteudoScad, { contentType: 'text/x-openscad', upsert: true });
-    return error ? null : sPath;
-}
+  useEffect(() => {
+    setSaldoAtual(perfil?.creditos_disponiveis ?? 0);
+  }, [perfil]);
 
-app.post('/gerar-stl-pro', async (req, res) => {
-    const d = req.body;
-    let designId = d.id || d.forma; 
-    const userId = d.user_id;
-    const custo = d.custo || 1; // Recebe o custo do frontend
-    const scadVaultPath = d.scad_vault_path; 
-
-    try {
-        // --- 1. VALIDAÇÃO DE SALDO NO SERVIDOR ---
-        if (userId && !scadVaultPath) {
-            const { data: perfil, error: perfilErr } = await supabase
-                .from('prod_perfis')
-                .select('creditos_disponiveis')
-                .eq('id', userId)
-                .single();
-
-            if (perfilErr || !perfil) throw new Error("Perfil não encontrado");
-            if (perfil.creditos_disponiveis < custo) {
-                return res.status(400).json({ error: "Saldo insuficiente no servidor" });
-            }
-        }
-
-        let scadTemplate = "";
-        if (!scadVaultPath) {
-            const { data: design } = await supabase
-                .from('prod_designs')
-                .select('scad_template')
-                .eq('id', designId)
-                .maybeSingle();
-
-            if (!design) return res.status(404).json({ error: "Design não encontrado" });
-            scadTemplate = design.scad_template;
-        }
-
-        const fontesPathMap = {
-            'Bebas': 'Bebas Neue',
-            'Playfair': 'Playfair Display',
-            'Open Sans': 'Open Sans',
-            'Beaver Punch': 'Beaver Punch',
-            'GABRWFER': 'Gabriel Weiss Friends',
-            'Megadeth': 'Megadeth'
-        };
-
-        const nomeFonteInterno = fontesPathMap[d.fonte] || 'Open Sans';
-
-        const executarRender = async (prefixo, varsExtras = "") => {
-            const fileId = `${prefixo}_${Date.now()}`;
-            const tempDir = path.join(__dirname, 'temp');
-            if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
-
-            const scadPath = path.join(tempDir, `${fileId}.scad`);
-            const stlPath = path.join(tempDir, `${fileId}.stl`);
-
-            let conteudoFinalScad = "";
-            let finalVaultPath = scadVaultPath;
-
-            if (scadVaultPath) {
-                const { data: scadBuffer, error: dlErr } = await supabase.storage
-                    .from('makers_pro_stl_prod')
-                    .download(scadVaultPath);
-                if (dlErr) throw new Error("Erro ao recuperar do Vault");
-                conteudoFinalScad = await scadBuffer.text();
-            } else {
-                let conteudoVariaveis = varsExtras;
-                Object.entries(d).forEach(([k, v]) => {
-                    if (!['id', 'ui_schema', 'fonte', 'scad_vault_path', 'user_id', 'nome_personalizado', 'custo'].includes(k)) {
-                        if (typeof v === 'number') conteudoVariaveis += `${k} = ${v};\n`;
-                        else if (typeof v === 'string') conteudoVariaveis += `${k} = "${v.replace(/"/g, "'")}";\n`;
-                        else if (typeof v === 'boolean') conteudoVariaveis += `${k} = ${v ? "true" : "false"};\n`;
-                    }
-                });
-                conteudoVariaveis += `fonte = "${nomeFonteInterno}";\n`;
-                if (d.nome_pet) conteudoVariaveis += `nome_pet = "${d.nome_pet.toUpperCase()}";\n`;
-                
-                conteudoFinalScad = `$fn=24;\n${conteudoVariaveis}\n${scadTemplate}`;
-                finalVaultPath = await guardarNoVault(fileId, conteudoFinalScad);
-            }
-
-            fs.writeFileSync(scadPath, conteudoFinalScad);
-
-            return new Promise((resolve, reject) => {
-                exec(`openscad --render -o "${stlPath}" "${scadPath}"`, { timeout: 80000 }, async (err, stdout, stderr) => {
-                    if (err) return reject(new Error(`Falha na renderização: ${stderr}`));
-                    
-                    const buffer = fs.readFileSync(stlPath);
-                    const sPath = `final/${fileId}.stl`;
-
-                    await supabase.storage.from('makers_pro_stl_prod').upload(sPath, buffer, { contentType: 'model/stl', upsert: true });
-                    const { data } = supabase.storage.from('makers_pro_stl_prod').getPublicUrl(sPath);
-                    const publicUrl = data.publicUrl;
-
-                    // --- 2. ATUALIZAÇÃO DE SALDO E REGISTO DE GASTOS ---
-                    if (userId && !scadVaultPath) {
-                        // Subtrair créditos
-                        const { data: perfilAtual } = await supabase.from('prod_perfis').select('creditos_disponiveis').eq('id', userId).single();
-                        const novoSaldo = (perfilAtual?.creditos_disponiveis || 0) - custo;
-                        
-                        await supabase.from('prod_perfis').update({ creditos_disponiveis: novoSaldo }).eq('id', userId);
-
-                        // Registar o Asset com o custo pago
-                        await supabase.from('prod_user_assets').insert([{
-                            user_id: userId,
-                            design_id: designId,
-                            nome_personalizado: d.nome_personalizado || "Novo Design",
-                            scad_vault_path: finalVaultPath,
-                            stl_url: publicUrl,
-                            custo_pago: custo, 
-                            last_rendered_at: new Date().toISOString()
-                        }]);
-                    }
-
-                    try { fs.unlinkSync(scadPath); fs.unlinkSync(stlPath); } catch (e) {}
-                    resolve({ publicUrl, finalVaultPath });
-                });
-            });
-        };
-
-        if (d.com_tampa === true && !scadVaultPath) {
-            const corpo = await executarRender("corpo", 'gerar_parte = "corpo";\n');
-            const tampa = await executarRender("tampa", 'gerar_parte = "tampa";\n');
-            res.json({ urls: [corpo.publicUrl, tampa.publicUrl] });
-        } else {
-            const resultado = await executarRender("modelo", 'gerar_parte = "tudo";\n');
-            res.json({ url: resultado.publicUrl });
-        }
-
-    } catch (e) {
-        console.error("Erro:", e.message);
-        res.status(500).json({ error: e.message });
+  useEffect(() => {
+    if (produto) {
+      const iniciais: any = { ...(produto.parametros_default || {}) };
+      if (produto.ui_schema) {
+        produto.ui_schema.forEach((c: any) => {
+          if (c.name) iniciais[c.name] = c.value !== undefined ? c.value : c.default;
+        });
+      }
+      if (!iniciais.fonte) iniciais.fonte = 'Open Sans';
+      setLocalValores(iniciais);
+      onUpdate(iniciais);
     }
-});
+  }, [produto?.id]);
 
-app.get('/', (req, res) => res.send('Servidor Maker Pro Ativo - Sistema de Créditos e Vault'));
+  const handleChange = (k: string, v: any) => {
+    const n = { ...localValores, [k]: v };
+    setLocalValores(n);
+    onUpdate(n);
+  };
 
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Porta: ${PORT}`));
+  const handleGerarSTL = async () => {
+    if (saldoAtual < custoDinamico) {
+      return alert(`Não tens créditos suficientes. Este design requer ${custoDinamico} créditos.`);
+    }
+    
+    const confirmar = custoDinamico === 0 
+      ? confirm("Desejas gerar este design gratuito?")
+      : confirm(`Isto irá consumir ${custoDinamico} crédito(s) para gerar e guardar este design na tua conta. Continuar?`);
+    
+    if (!confirmar) return;
+
+    setLoading(true);
+    try {
+      const petName = localValores.nome_pet ? String(localValores.nome_pet).toLowerCase() : 'objeto';
+      const nomeGerado = `${produto.id}_${petName}`;
+
+      const r = await fetch("https://maker-pro-docker-prod.onrender.com/gerar-stl-pro", {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          ...localValores, 
+          id: produto.id,
+          user_id: perfil.id,
+          nome_personalizado: nomeGerado 
+        }),
+      });
+      
+      const d = await r.json();
+
+      if (d.url || d.urls) {
+        if (custoDinamico > 0) {
+          const { error } = await supabase
+            .from('prod_perfis')
+            .update({ creditos_disponiveis: saldoAtual - custoDinamico })
+            .eq('id', perfil.id);
+
+          if (error) throw error;
+          setSaldoAtual(prev => prev - custoDinamico);
+        }
+
+        onGerarSucesso(d.urls || d.url);
+        alert(custoDinamico === 0 ? "Design gerado com sucesso!" : "Design gerado e guardado na tua Área de Cliente!");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao processar o modelo.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDownloadSimples = () => {
+    if (!stlUrl) return;
+    const petName = localValores.nome_pet ? String(localValores.nome_pet).toLowerCase() : 'design';
+    const link = document.createElement('a');
+    link.href = Array.isArray(stlUrl) ? stlUrl[0] : stlUrl;
+    link.setAttribute('download', `${produto.id}_${petName}.stl`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
+  const seccoes = Array.from(new Set(produto?.ui_schema?.filter((c: any) => c.section && c.section !== 'GESTÃO').map((c: any) => c.section)));
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      {seccoes.map((s: any) => (
+        <div key={s} style={{ background: '#0f172a', padding: '15px', borderRadius: '12px', border: '1px solid #334155' }}>
+          <label style={{ color: '#3b82f6', fontSize: '10px', fontWeight: 'bold', display: 'block', marginBottom: '10px' }}>{String(s).toUpperCase()}</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {produto.ui_schema.filter((c: any) => c.section === s && c.type !== 'hidden').map((c: any) => (
+              <div key={c.name}>
+                
+                {/* --- AQUI ESTÁ A CORREÇÃO REAL --- */}
+                <label style={{ fontSize: '10px', color: '#64748b' }}>
+                  {c.label || c.name} {(c.type === 'number' || c.type === 'slider') ? '(mm)' : ''}
+                </label>
+                {/* ---------------------------------- */}
+
+                {c.name === 'fonte' ? (
+                  <select 
+                    value={localValores[c.name] || 'Open Sans'}
+                    onChange={(e) => handleChange(c.name, e.target.value)}
+                    style={{ width: '100%', padding: '10px', background: '#1e293b', color: 'white', border: '1px solid #334155', borderRadius: '8px', marginTop: '5px' }}
+                  >
+                    <option value="Open Sans">Open Sans</option>
+                    <option value="Bebas">Bebas Neue</option>
+                    <option value="Playfair">Playfair Display</option>
+                    <option value="Beaver Punch">Beaver Punch</option>
+                    <option value="GABRWFER">Gabriel Weiss' Friends</option>
+                    <option value="Megadeth">Megadeth</option>
+                  </select>
+                ) : (
+                  <input 
+                    type={c.type === 'slider' ? 'range' : (c.type === 'number' ? 'number' : 'text')}
+                    min={c.min} max={c.max} step={0.1}
+                    value={localValores[c.name] ?? ''}
+                    onChange={(e) => handleChange(c.name, (c.type === 'slider' || c.type === 'number') ? parseFloat(e.target.value) : e.target.value)}
+                    style={{ width: '100%', padding: '10px', background: '#1e293b', color: 'white', border: '1px solid #334155', borderRadius: '8px', marginTop: '5px' }}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+
+      <div style={{ background: '#0f172a', padding: '15px', borderRadius: '15px', border: '1px solid #1e293b' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+          <span style={{ fontSize: '11px', color: '#64748b' }}>SALDO:</span>
+          <span style={{ fontSize: '12px', color: saldoAtual >= custoDinamico ? '#4ade80' : '#f87171', fontWeight: 'bold' }}>{saldoAtual} CRÉDITOS</span>
+        </div>
+        
+        <button 
+          onClick={handleGerarSTL} 
+          disabled={loading || saldoAtual < custoDinamico} 
+          style={{ width: '100%', padding: '15px', background: '#3b82f6', color: 'white', borderRadius: '10px', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}
+        >
+          {loading ? "A PROCESSAR..." : (
+            custoDinamico === 0 
+              ? "🔨 GERAR DESIGN (GRÁTIS)" 
+              : `🔨 GERAR E GUARDAR DESIGN (${custoDinamico} CRÉDITO${custoDinamico > 1 ? 'S' : ''})`
+          )}
+        </button>
+
+        {stlUrl && (
+          <button 
+            onClick={handleDownloadSimples}
+            style={{ width: '100%', marginTop: '15px', padding: '15px', background: 'transparent', border: '1px solid #4ade80', color: '#4ade80', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}
+          >
+            📥 DESCARREGAR AGORA
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
