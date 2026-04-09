@@ -46,7 +46,6 @@ app.post('/gerar-stl-pro', async (req, res) => {
         const nomeFonteInterno = fontesPathMap[d.fonte] || 'Open Sans';
 
         const executarRender = async (prefixo, varsExtras = "") => {
-            // Criar um fileId limpo: forma_petname_data
             const sanitize = (str) => String(str).replace(/[^a-z0-9]/gi, '_').toLowerCase();
             const petName = d.nome_pet ? sanitize(d.nome_pet) : 'objeto';
             const fileId = `${prefixo}_${sanitize(designId)}_${petName}_${Date.now()}`;
@@ -99,12 +98,11 @@ app.post('/gerar-stl-pro', async (req, res) => {
                     const { data } = supabase.storage.from('makers_pro_stl_prod').getPublicUrl(sPath);
                     const publicUrl = data.publicUrl;
 
-                    // Registo na Área de Cliente
                     if (userId && !scadVaultPath) {
                         await supabase.from('prod_user_assets').insert([{
                             user_id: userId,
                             design_id: designId,
-                            nome_personalizado: d.nome_personalizado, // forma_petname vindo do front
+                            nome_personalizado: d.nome_personalizado,
                             scad_vault_path: finalVaultPath,
                             stl_url: publicUrl,
                             is_archived: false,
@@ -135,5 +133,7 @@ app.post('/gerar-stl-pro', async (req, res) => {
     }
 });
 
-app.get('/', (req, res) => res.send('Servidor Maker Pro Ativo'));
-app.listen(process.env.PORT || 10000, '0.0.0.0');
+app.get('/', (req, res) => res.send('Servidor Maker Pro Ativo com Vault e Custo Variável'));
+
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Porta: ${PORT}`));
