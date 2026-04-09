@@ -1,109 +1,93 @@
 const express = require('express');
 const { exec } = require('child_process');
 const { createClient } = require('@supabase/supabase-js');
-const path = require('path');
-const fs = require('fs');
 const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// CONFIGURAÇÃO SUPABASE COM SERVICE ROLE (IGNORA RLS)
+// CONFIGURAÇÃO COM A TUA SECRET KEY
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
 const tmpDir = path.join(__dirname, 'tmp');
 if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir);
 
 app.post('/gerar-stl-pro', async (req, res) => {
-    const d = req.body;
-    const userId = d.user_id;
-    const produtoId = d.id;
-    const custo = d.custo || 1;
-    const nomePersonalizado = d.nome_personalizado || `design_${Date.now()}`;
+    const { user_id, id: produtoId, custo, nome_personalizado, ...params } = req.body;
 
-    // Nomes de ficheiros
-    const outputFileName = `${produtoId}_${Date.now()}.stl`;
-    const outputPath = path.join(tmpDir, outputFileName);
-    const scadPath = path.join(__dirname, 'scads', `${produtoId}.scad`);
-
-    console.log(`>>> Processando: User ${userId} | Produto ${produtoId}`);
+    // 1. LIMPEZA DO UUID (Garante que não vão aspas ou espaços extra)
+    const cleanUserId = user_id?.trim();
 
     try {
-        // 1. VALIDAÇÃO DE UTILIZADOR
-        if (!userId) return res.status(400).json({ error: "ID de utilizador ausente." });
+        if (!cleanUserId) return res.status(400).json({ error: "ID de utilizador não recebido." });
 
+        // 2. BUSCA NA TABELA prod_perfis (Coluna: creditos_disponiveis)
         const { data: perfil, error: pErr } = await supabase
             .from('prod_perfis')
             .select('creditos_disponiveis')
-            .eq('id', userId)
+            .eq('id', cleanUserId)
             .single();
 
         if (pErr || !perfil) {
-            console.error("Erro ao buscar perfil:", pErr);
-            return res.status(404).json({ error: "Perfil não encontrado no sistema." });
+            console.error("Erro Supabase:", pErr?.message);
+            return res.status(404).json({ error: "Perfil não encontrado. Verifica o ID na tabela." });
         }
 
-        if (perfil.creditos_disponiveis < custo) {
+        // 3. VALIDAÇÃO DE SALDO
+        const custoEfetivo = custo || 1;
+        if (perfil.creditos_disponiveis < custoEfetivo) {
             return res.status(400).json({ error: "Saldo insuficiente." });
         }
 
-        // 2. MONTAGEM DE PARÂMETROS OPENSCAD
-        let vars = "";
-        Object.keys(d).forEach(k => {
-            if (!['id', 'user_id', 'custo', 'nome_personalizado'].includes(k)) {
-                vars += typeof d[k] === 'string' ? ` -D '${k}="${d[k]}"'` : ` -D '${k}=${d[k]}'`;
-            }
-        });
+        // 4. PREPARAÇÃO OPENSCAD
+        const outName = `${produtoId}_${Date.now()}.stl`;
+        const outPath = path.join(tmpDir, outName);
+        const scadPath = path.join(__dirname, 'scads', `${produtoId}.scad`);
+        
+        let cmdVars = "";
+        for (const [key, val] of Object.entries(params)) {
+            cmdVars += typeof val === 'string' ? ` -D '${key}="${val}"'` : ` -D '${key}=${val}'`;
+        }
 
-        // 3. EXECUÇÃO DO OPENSCAD
-        const cmd = `openscad -o "${outputPath}" ${vars} "${scadPath}"`;
-        exec(cmd, async (err) => {
-            if (err) {
-                console.error("Erro OpenSCAD:", err);
-                return res.status(500).json({ error: "Falha na renderização 3D." });
-            }
+        // 5. RENDERIZAÇÃO
+        exec(`openscad -o "${outPath}" ${cmdVars} "${scadPath}"`, async (err) => {
+            if (err) return res.status(500).json({ error: "Erro na renderização." });
 
             try {
-                // 4. UPLOAD PARA STORAGE
-                const fileBuffer = fs.readFileSync(outputPath);
-                const storagePath = `users/${userId}/${outputFileName}`;
+                const fileBuffer = fs.readFileSync(outPath);
+                const storagePath = `users/${cleanUserId}/${outName}`;
                 
-                const { error: upErr } = await supabase.storage
-                    .from('designs-vault')
-                    .upload(storagePath, fileBuffer, { contentType: 'application/sla' });
-
-                if (upErr) throw upErr;
-
+                // Upload para o Bucket
+                await supabase.storage.from('designs-vault').upload(storagePath, fileBuffer);
                 const { data: urlData } = supabase.storage.from('designs-vault').getPublicUrl(storagePath);
 
-                // 5. DEDUÇÃO DE CRÉDITOS
-                const novoSaldo = perfil.creditos_disponiveis - custo;
-                await supabase.from('prod_perfis').update({ creditos_disponiveis: novoSaldo }).eq('id', userId);
+                // 6. ATUALIZAÇÃO DO SALDO (Coluna: creditos_disponiveis)
+                const novoSaldo = perfil.creditos_disponiveis - custoEfetivo;
+                await supabase.from('prod_perfis')
+                    .update({ creditos_disponiveis: novoSaldo })
+                    .eq('id', cleanUserId);
 
-                // 6. REGISTO NO COFRE (ASSETS)
+                // 7. REGISTO DO ASSET
                 await supabase.from('prod_user_assets').insert([{
-                    user_id: userId,
+                    user_id: cleanUserId,
                     design_id: produtoId,
-                    nome_personalizado: nomePersonalizado,
                     stl_url: urlData.publicUrl,
-                    custo_pago: custo,
-                    last_rendered_at: new Date().toISOString()
+                    nome_personalizado: nome_personalizado || outName
                 }]);
 
-                // Limpeza e Resposta
-                fs.unlinkSync(outputPath);
-                res.json({ url: urlData.publicUrl, novoSaldo });
+                fs.unlinkSync(outPath);
+                res.json({ success: true, url: urlData.publicUrl, novoSaldo });
 
             } catch (innerErr) {
-                console.error("Erro pós-renderização:", innerErr);
-                res.status(500).json({ error: "Erro ao salvar design." });
+                res.status(500).json({ error: "Erro ao processar ficheiro final." });
             }
         });
-    } catch (err) {
+    } catch (globalErr) {
         res.status(500).json({ error: "Erro interno no servidor." });
     }
 });
 
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => console.log(`Servidor a correr na porta ${PORT}`));
+app.listen(process.env.PORT || 10000, '0.0.0.0');
