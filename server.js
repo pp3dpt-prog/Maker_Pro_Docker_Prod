@@ -9,57 +9,59 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Configuração simples com Service Role para o Storage
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
+const tmpDir = path.join(__dirname, 'tmp');
+if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir);
+
 app.post('/gerar-stl-pro', async (req, res) => {
-    const { user_id, id: produtoId, custo, nome_personalizado, ...params } = req.body;
+    const { user_id, id: produtoId, nome_personalizado, ...params } = req.body;
 
-    try {
-        // Busca do perfil usando a coluna correta
-        const { data: perfil, error: pErr } = await supabase
-            .from('prod_perfis')
-            .select('creditos_disponiveis')
-            .eq('id', user_id)
-            .single();
+    if (!user_id || !produtoId) {
+        return res.status(400).json({ error: "Dados insuficientes (user_id ou produtoId)." });
+    }
 
-        if (pErr || !perfil) {
-            return res.status(404).json({ error: "Perfil não encontrado." });
+    // Nome único para o ficheiro
+    const outputName = `${produtoId}_${Date.now()}.stl`;
+    const outputPath = path.join(tmpDir, outputName);
+    const scadPath = path.join(__dirname, 'scads', `${produtoId}.scad`);
+
+    // Montar variáveis para o OpenSCAD
+    let cmdVars = "";
+    for (const [key, val] of Object.entries(params)) {
+        if (key !== 'id' && key !== 'user_id' && key !== 'nome_personalizado') {
+            cmdVars += typeof val === 'string' ? ` -D '${key}="${val}"'` : ` -D '${key}=${val}'`;
+        }
+    }
+
+    // Execução do OpenSCAD
+    exec(`openscad -o "${outputPath}" ${cmdVars} "${scadPath}"`, async (err) => {
+        if (err) {
+            console.error("Erro OpenSCAD:", err);
+            return res.status(500).json({ error: "Erro na renderização do ficheiro." });
         }
 
-        const outputName = `${produtoId}_${Date.now()}.stl`;
-        const outputPath = path.join(__dirname, 'tmp', outputName);
-        const scadPath = path.join(__dirname, 'scads', `${produtoId}.scad`);
-        
-        let vars = "";
-        Object.entries(params).forEach(([k, v]) => {
-            vars += typeof v === 'string' ? ` -D '${k}="${v}"'` : ` -D '${k}=${v}'`;
-        });
-
-        exec(`openscad -o "${outputPath}" ${vars} "${scadPath}"`, async (err) => {
-            if (err) return res.status(500).json({ error: "Erro OpenSCAD." });
-
+        try {
             const fileBuffer = fs.readFileSync(outputPath);
             const storagePath = `users/${user_id}/${outputName}`;
-            
-            await supabase.storage.from('designs-vault').upload(storagePath, fileBuffer);
+
+            // Upload para o Bucket
+            const { error: upErr } = await supabase.storage.from('designs-vault').upload(storagePath, fileBuffer);
+            if (upErr) throw upErr;
+
             const { data: urlData } = supabase.storage.from('designs-vault').getPublicUrl(storagePath);
 
-            const novoSaldo = perfil.creditos_disponiveis - (custo || 1);
-            await supabase.from('prod_perfis').update({ creditos_disponiveis: novoSaldo }).eq('id', user_id);
+            // IMPORTANTE: Não alteramos créditos aqui. Apenas respondemos com a URL.
+            res.json({ success: true, url: urlData.publicUrl });
 
-            await supabase.from('prod_user_assets').insert([{
-                user_id,
-                design_id: produtoId,
-                stl_url: urlData.publicUrl,
-                nome_personalizado: nome_personalizado || outputName
-            }]);
-
+            // Limpeza
             fs.unlinkSync(outputPath);
-            res.json({ url: urlData.publicUrl, novoSaldo });
-        });
-    } catch (e) {
-        res.status(500).json({ error: "Erro interno." });
-    }
+        } catch (dbErr) {
+            console.error("Erro Storage:", dbErr.message);
+            res.status(500).json({ error: "Erro ao guardar o ficheiro gerado." });
+        }
+    });
 });
 
 app.listen(process.env.PORT || 10000, '0.0.0.0');
