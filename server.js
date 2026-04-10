@@ -54,9 +54,9 @@ app.post('/gerar-stl-pro', async (req, res) => {
 
             if (upErr) throw upErr;
 
-            const { data: urlData } = supabase.storage.from('designs-vault').getPublicUrl(storagePath);
+            const { data: urlData } = supabase.storage.from('designs-vault').createSignedUrl(storagePath);
 
-            res.json({ success: true, url: urlData.publicUrl });
+            res.json({ success: true, url: urlData.SignedUrl });
 
             // Limpeza de ficheiro temporário
             fs.unlinkSync(outputPath);
