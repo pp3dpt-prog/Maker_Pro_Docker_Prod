@@ -1,12 +1,3 @@
-/**
- * Backend STL Generator (Secure)
- * - Validates Supabase Bearer token (Authorization: Bearer <token>)
- * - Ignores user_id from body (legacy insecure)
- * - Generates STL via OpenSCAD using spawn (no shell), with timeout
- * - Uploads to Supabase Storage (private bucket recommended)
- * - Returns storagePath (+ optional signed url for compatibility)
- */
-
 require('dotenv').config();
 
 const express = require('express');
@@ -28,15 +19,17 @@ const SUPABASE_URL = (process.env.SUPABASE_URL || '').trim();
 const SUPABASE_SERVICE_ROLE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
 const STORAGE_BUCKET = (process.env.STORAGE_BUCKET || 'designs-vault').trim();
 
-const FRONTEND_ORIGIN = (process.env.FRONTEND_ORIGIN || '').trim(); // opcional: "https://teu-site.vercel.app"
+const FRONTEND_ORIGIN = (process.env.FRONTEND_ORIGIN || '').trim();
 const OPENSCAD_BIN = (process.env.OPENSCAD_BIN || 'openscad').trim();
 const OPENSCAD_TIMEOUT_MS = Number(process.env.OPENSCAD_TIMEOUT_MS || '90000'); // 90s
 const SIGNED_URL_TTL_SECONDS = Number(process.env.SIGNED_URL_TTL_SECONDS || '120'); // 2 min
 
+const DESIGNS_TABLE = (process.env.DESIGNS_TABLE || 'prod_designs').trim();
+
 // Compatibilidade (DESATIVADO por defeito)
 const ALLOW_LEGACY_USER_ID = (process.env.ALLOW_LEGACY_USER_ID || 'false').toLowerCase() === 'true';
 
-// Produtos permitidos (recomendado: lista real dos 5 IDs)
+// Produtos permitidos (lista real dos 5 IDs, separados por vírgulas)
 const ALLOWED_PRODUCTS = (process.env.ALLOWED_PRODUCTS || '')
   .split(',')
   .map(s => s.trim())
@@ -47,7 +40,6 @@ const MAX_STRING_LEN = Number(process.env.MAX_STRING_LEN || '64');
 const SAFE_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-  // falhar cedo no backend é OK (é serviço server, não bundle client)
   console.error('Faltam SUPABASE_URL e/ou SUPABASE_SERVICE_ROLE_KEY no ambiente.');
   process.exit(1);
 }
@@ -60,7 +52,6 @@ const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 app.use(express.json({ limit: '1mb' }));
 
-// CORS: por defeito aberto (beta). Em produção, fixa o FRONTEND_ORIGIN.
 if (FRONTEND_ORIGIN) {
   app.use(cors({ origin: FRONTEND_ORIGIN, credentials: true }));
 } else {
@@ -103,7 +94,6 @@ function sanitizeParams(raw) {
         e.statusCode = 400;
         throw e;
       }
-      // evita caracteres de controlo estranhos
       sanitized[key] = val.replace(/\r/g, '').replace(/\n/g, ' ');
     } else if (typeof val === 'number') {
       if (!Number.isFinite(val)) {
@@ -113,7 +103,6 @@ function sanitizeParams(raw) {
       }
       sanitized[key] = val;
     } else if (typeof val === 'boolean') {
-      // OpenSCAD é mais previsível com 0/1
       sanitized[key] = val ? 1 : 0;
     } else {
       const e = new Error(`Tipo inválido em ${key}`);
@@ -130,7 +119,7 @@ async function getUserFromBearer(req) {
   const m = auth.match(/^Bearer\s+(.+)$/i);
 
   if (!m) {
-    if (ALLOW_LEGACY_USER_ID) return null; // fallback inseguro (beta)
+    if (ALLOW_LEGACY_USER_ID) return null;
     const e = new Error('Falta Authorization Bearer token.');
     e.statusCode = 401;
     throw e;
@@ -145,11 +134,10 @@ async function getUserFromBearer(req) {
     throw e;
   }
 
-  return data.user; // contém id, email, etc.
+  return data.user;
 }
 
 async function fileExistsInStorage(bucket, folder, filename) {
-  // list com search reduz overhead vs download
   const { data, error } = await supabaseAdmin.storage
     .from(bucket)
     .list(folder, { search: filename, limit: 1 });
@@ -167,26 +155,65 @@ async function createSignedUrl(bucket, storagePath, ttlSeconds) {
   return data.signedUrl;
 }
 
+/**
+ * Vai buscar o template SCAD e o blank STL (se existir) à BD.
+ * Espera que o id do produto seja a coluna `id` (como tens no catálogo). [1](https://amplifon-my.sharepoint.com/personal/pedro_pomar_amplifon_com/Documents/Ficheiros%20do%20Microsoft%20Copilot%20Chat/page.tsx)
+ */
+async function getDesignTemplate(produtoId) {
+  const { data, error } = await supabaseAdmin
+    .from(DESIGNS_TABLE)
+    .select('scad_template, stl_file_path')
+    .eq('id', produtoId)
+    .maybeSingle();
+
+  if (error) {
+    const e = new Error(`Erro a ler ${DESIGNS_TABLE}: ${error.message}`);
+    e.statusCode = 500;
+    throw e;
+  }
+
+  return data || null;
+}
+
+/**
+ * Reescreve caminhos do tipo "/models/blank_x.stl" para o caminho real no container:
+ * "__dirname/models/blank_x.stl"
+ */
+function rewriteModelPathsInTemplate(templateText, stlFilePath) {
+  if (!templateText || !stlFilePath) return templateText;
+
+  // normaliza: remove múltiplas barras iniciais
+  const relative = stlFilePath.replace(/^\/+/, ''); // "models/blank_x.stl"
+  const abs = path.join(__dirname, relative);
+
+  // segurança: garante que fica dentro do __dirname
+  const resolved = path.resolve(abs);
+  const root = path.resolve(__dirname);
+  if (!resolved.startsWith(root)) return templateText;
+
+  // OpenSCAD gosta de paths com "/" (posix)
+  const absPosix = resolved.split(path.sep).join('/');
+
+  // substitui ocorrências exactas do valor da BD (que tipicamente tem "/models/...")
+  return templateText.split(stlFilePath).join(absPosix);
+}
+
 // ──────────────────────────────────────────────
 // ROUTES
 // ──────────────────────────────────────────────
 
-app.get('/healthz', (_req, res) => {
-  res.status(200).send('ok');
-});
+app.get('/healthz', (_req, res) => res.status(200).send('ok'));
 
 /**
  * POST /gerar-stl-pro
  * Body: { id: produtoId, ...params }
  * Auth: Authorization: Bearer <supabase_access_token>
  *
- * Returns:
- * { success: true, storagePath, url?, paramsHash }
- *
- * Nota: "url" é um signed URL curto (compatibilidade). Em modo seguro, o frontend deve preferir "storagePath".
+ * Returns: { success: true, storagePath, url?, paramsHash, cached }
  */
 app.post('/gerar-stl-pro', async (req, res) => {
   let outputPath = null;
+  let scadTempPath = null;
 
   try {
     const { id: produtoId, user_id: legacyUserId, ...rest } = req.body || {};
@@ -195,53 +222,77 @@ app.post('/gerar-stl-pro', async (req, res) => {
       return res.status(400).json({ error: 'id (produtoId) é obrigatório.' });
     }
 
-    // whitelist de produtos (se definida)
+    // whitelist (se definida)
     if (ALLOWED_PRODUCTS.length > 0 && !ALLOWED_PRODUCTS.includes(String(produtoId))) {
       return res.status(400).json({ error: 'produtoId inválido.' });
     }
 
-    // autenticação
+    // auth
     const user = await getUserFromBearer(req);
-
-    // fallback inseguro (só se ALLOW_LEGACY_USER_ID=true)
     const userId = user?.id || legacyUserId;
 
     if (!userId) {
       return res.status(401).json({ error: 'Sem utilizador autenticado.' });
     }
 
-    // sanitização de params
     const params = sanitizeParams(rest);
 
-    // paths
-    const scadPath = path.join(__dirname, 'scads', `${produtoId}.scad`);
-    if (!fs.existsSync(scadPath)) {
-      return res.status(404).json({ error: `Template SCAD não encontrado: ${produtoId}.scad` });
+    // ──────────────────────────────────────────────
+    // 1) obter template da BD
+    // ──────────────────────────────────────────────
+    const design = await getDesignTemplate(String(produtoId));
+
+    // fallback opcional para ficheiro local
+    let templateText = design?.scad_template || '';
+    const stlFilePath = design?.stl_file_path || null;
+
+    if (!templateText) {
+      // fallback para "scads/<id>.scad" (apenas se ainda tiveres alguns)
+      const scadPath = path.join(__dirname, 'scads', `${produtoId}.scad`);
+      if (!fs.existsSync(scadPath)) {
+        return res.status(404).json({ error: `Template SCAD não encontrado: ${produtoId}.scad` });
+      }
+      templateText = await fsp.readFile(scadPath, 'utf8');
     }
 
-    // cache por hash (nome determinístico)
-    const paramsHash = sha256(String(produtoId) + '|' + stableStringify(params));
+    // reescrever paths de modelo se houver blank STL
+    templateText = rewriteModelPathsInTemplate(templateText, stlFilePath);
+
+    // se tiveres blank STL, valida que existe no container (para erro claro)
+    if (stlFilePath) {
+      const rel = stlFilePath.replace(/^\/+/, '');
+      const abs = path.join(__dirname, rel);
+      if (!fs.existsSync(abs)) {
+        return res.status(500).json({
+          error: `Blank STL não encontrado no container: ${stlFilePath}`,
+          hint: `Confirma que o Docker copia a pasta "${rel.split('/')[0]}/" para a imagem.`,
+        });
+      }
+    }
+
+    // escreve SCAD temporário
+    const templateHash = sha256(templateText);
+    scadTempPath = path.join(tmpDir, `${produtoId}_${templateHash}.scad`);
+    await fsp.writeFile(scadTempPath, templateText, 'utf8');
+
+    // cache por hash (inclui templateHash para invalidar se template mudar)
+    const paramsHash = sha256(String(produtoId) + '|' + templateHash + '|' + stableStringify(params));
     const outputName = `${produtoId}_${paramsHash}.stl`;
 
     const folder = `users/${userId}`;
     const storagePath = `${folder}/${outputName}`;
 
-    // se já existir no storage, devolve imediatamente (poupa OpenSCAD)
     const exists = await fileExistsInStorage(STORAGE_BUCKET, folder, outputName);
     if (exists) {
       const signedUrl = await createSignedUrl(STORAGE_BUCKET, storagePath, SIGNED_URL_TTL_SECONDS);
-      return res.json({
-        success: true,
-        storagePath,
-        url: signedUrl, // compatibilidade/UX
-        paramsHash,
-        cached: true,
-      });
+      return res.json({ success: true, storagePath, url: signedUrl, paramsHash, cached: true });
     }
 
     outputPath = path.join(tmpDir, outputName);
 
-    // montar args do OpenSCAD sem shell (seguro)
+    // ──────────────────────────────────────────────
+    // 2) OpenSCAD spawn
+    // ──────────────────────────────────────────────
     const args = ['-o', outputPath];
 
     for (const [key, val] of Object.entries(params)) {
@@ -253,24 +304,16 @@ app.post('/gerar-stl-pro', async (req, res) => {
       }
     }
 
-    args.push(scadPath);
+    args.push(scadTempPath);
 
-    // spawn + timeout
     const child = spawn(OPENSCAD_BIN, args, { stdio: ['ignore', 'ignore', 'pipe'] });
 
     let stderr = '';
-    child.stderr.on('data', (d) => {
-      // guarda apenas um pouco para não explodir memória
-      stderr += d.toString().slice(0, 4000);
-    });
+    child.stderr.on('data', (d) => { stderr += d.toString().slice(0, 4000); });
 
-    const timer = setTimeout(() => {
-      child.kill('SIGKILL');
-    }, OPENSCAD_TIMEOUT_MS);
+    const timer = setTimeout(() => child.kill('SIGKILL'), OPENSCAD_TIMEOUT_MS);
 
-    const exitCode = await new Promise((resolve) => {
-      child.on('close', (code) => resolve(code));
-    });
+    const exitCode = await new Promise((resolve) => child.on('close', (code) => resolve(code)));
 
     clearTimeout(timer);
 
@@ -281,15 +324,14 @@ app.post('/gerar-stl-pro', async (req, res) => {
       });
     }
 
-    // upload para storage
+    // ──────────────────────────────────────────────
+    // 3) upload
+    // ──────────────────────────────────────────────
     const fileBuffer = await fsp.readFile(outputPath);
 
     const { error: upErr } = await supabaseAdmin.storage
       .from(STORAGE_BUCKET)
-      .upload(storagePath, fileBuffer, {
-        contentType: 'model/stl',
-        upsert: true,
-      });
+      .upload(storagePath, fileBuffer, { contentType: 'model/stl', upsert: true });
 
     if (upErr) {
       return res.status(500).json({ error: 'Erro ao fazer upload para o Storage.', details: upErr.message });
@@ -297,26 +339,20 @@ app.post('/gerar-stl-pro', async (req, res) => {
 
     const signedUrl = await createSignedUrl(STORAGE_BUCKET, storagePath, SIGNED_URL_TTL_SECONDS);
 
-    return res.json({
-      success: true,
-      storagePath,
-      url: signedUrl, // compatibilidade/UX (opcional)
-      paramsHash,
-      cached: false,
-    });
+    return res.json({ success: true, storagePath, url: signedUrl, paramsHash, cached: false });
   } catch (err) {
     const status = err.statusCode || 500;
     return res.status(status).json({ error: err.message || 'Erro interno.' });
   } finally {
-    // cleanup tmp
-    if (outputPath) {
-      try { await fsp.unlink(outputPath); } catch (_) {}
-    }
+    // limpeza tmp
+    if (outputPath) { try { await fsp.unlink(outputPath); } catch (_) {} }
+    if (scadTempPath) { try { await fsp.unlink(scadTempPath); } catch (_) {} }
   }
 });
 
 app.listen(process.env.PORT || 10000, '0.0.0.0', () => {
   console.log(`STL backend a correr em :${process.env.PORT || 10000}`);
   console.log(`Bucket: ${STORAGE_BUCKET}`);
+  console.log(`Designs table: ${DESIGNS_TABLE}`);
   console.log(`Allowed products: ${ALLOWED_PRODUCTS.length > 0 ? ALLOWED_PRODUCTS.join(', ') : '(sem whitelist)'}`);
 });
