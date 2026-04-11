@@ -1,11 +1,13 @@
+
+require('dotenv').config(); // ⬅️ OBRIGATÓRIO
+
 const express = require('express');
-const { spawn } = require('child_process');
-const crypto = require('crypto');
+const { exec } = require('child_process');
 const { createClient } = require('@supabase/supabase-js');
 const cors = require('cors');
 const fs = require('fs');
-const fsp = fs.promises;
 const path = require('path');
+
 
 const app = express();
 app.use(cors());
