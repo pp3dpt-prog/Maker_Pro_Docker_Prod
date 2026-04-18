@@ -4,13 +4,18 @@ telefone = "000000000";
 fonte = "Open Sans";    
 forma = "coracao";      
 
-fontSize = 7; 
-xPos = 0; 
-yPos = 0; 
-fontSizeN = 6.5; 
-xPosN = 0; 
-yPosN = 0;
+
+fontSize  = is_undef(fontSize)  ? 7   : fontSize;
+xPos      = is_undef(xPos)      ? 0   : xPos;
+yPos      = is_undef(yPos)      ? 0   : yPos;
+
+fontSizeN = is_undef(fontSizeN) ? 6.5 : fontSizeN;
+xPosN     = is_undef(xPosN)     ? 0   : xPosN;
+yPosN     = is_undef(yPosN)     ? 0   : yPosN;
+
 z_superficie = 3.0; 
+
+echo("DEBUG fonte=", fonte, " fontSizeN=", fontSizeN, " fontSize=", fontSize);
 
 // --- 2. LÓGICA DE SELEÇÃO DA BASE ---
 // Removido o prefixo "app/" para funcionar no ambiente WORKDIR /app do Docker [cite: 8, 9]
