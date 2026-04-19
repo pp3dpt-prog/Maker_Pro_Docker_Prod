@@ -27,8 +27,10 @@ RUN mkdir -p /usr/share/fonts/truetype/custom && \
     fc-cache -f -v
 
 # 6. LOG DE VERIFICAÇÃO (Para veres no Build Log do Render)
-RUN echo "--- FONTES DETECTADAS NO SISTEMA ---" && \
-    fc-list : family | grep -iE "Bebas|Open|Playfair|BADABB" || echo "ERRO: Fontes não encontradas!"
+# 6. LOG DE VERIFICAÇÃO (build log)
+RUN echo "--- FONTES DETECTADAS NO SISTEMA (families) ---" && \
+    fc-list : family | sort -u | grep -iE "Aladin|Amarante|Benne|Baloo" || \
+    (echo "ERRO: Fontes Aladin/Amarante/Benne/Baloo não encontradas!" && exit 1)
 
 EXPOSE 10000
 

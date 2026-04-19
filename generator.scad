@@ -1,9 +1,8 @@
 // --- 1. VARIÁVEIS INJETADAS PELO BACKEND ---
-nome_pet = "NOME";      
-telefone = "000000000"; 
-fonte = "Open Sans";    
-forma = "coracao";      
-
+nome_pet = is_undef(nome_pet) ? "NOME" : nome_pet;
+telefone = is_undef(telefone) ? "000000000" : telefone;
+fonte = is_undef(fonte) ? "Open Sans" : fonte;
+forma = is_undef(forma) ? "coracao" : forma;
 
 fontSize  = is_undef(fontSize)  ? 7   : fontSize;
 xPos      = is_undef(xPos)      ? 0   : xPos;
@@ -12,6 +11,7 @@ yPos      = is_undef(yPos)      ? 0   : yPos;
 fontSizeN = is_undef(fontSizeN) ? 6.5 : fontSizeN;
 xPosN     = is_undef(xPosN)     ? 0   : xPosN;
 yPosN     = is_undef(yPosN)     ? 0   : yPosN;
+
 
 z_superficie = 3.0; 
 
