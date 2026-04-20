@@ -1,4 +1,4 @@
-$fn = 60;
+
 altura = 3;
 
 module coracao_base_cubo() {
