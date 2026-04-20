@@ -277,7 +277,16 @@ ${templateText}
     child.stderr.on('data', (d) => { stderr += d.toString().slice(0, 4000); });
 
     const timer = setTimeout(() => child.kill('SIGKILL'), OPENSCAD_TIMEOUT_MS);
-    const exitCode = await new Promise((resolve) => child.on('close', (code) => resolve(code)));
+    const { code, signal } = await new Promise((resolve) =>
+      child.on('close', (code, signal) => resolve({ code, signal }))
+    );
+
+    if (signal) {
+      return res.status(500).json({ error: 'OpenSCAD terminou por sinal (possível timeout).', details: stderr, signal });
+    }
+    if (code !== 0) {
+      return res.status(500).json({ error: 'Falha ao processar modelo 3D.', details: stderr });
+    }
     clearTimeout(timer);
 
     if (exitCode !== 0) {
