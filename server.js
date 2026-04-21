@@ -273,36 +273,25 @@ ${templateText}
 
     const child = spawn(OPENSCAD_BIN, args, { stdio: ['ignore', 'ignore', 'pipe'] });
 
-      let stderr = '';
-      child.stderr.on('data', (d) => {
-        const s = d.toString();
-        stderr += s.slice(0, 4000);
-        // opcional mas útil para logs do Render:
-        // console.error('[openscad]', s);
-      });
+    let stderr = '';
+    child.stderr.on('data', (d) => { stderr += d.toString().slice(0, 4000); });
 
-      const timer = setTimeout(() => child.kill('SIGKILL'), OPENSCAD_TIMEOUT_MS);
+    const timer = setTimeout(() => child.kill('SIGKILL'), OPENSCAD_TIMEOUT_MS);
+    const { code, signal } = await new Promise((resolve) =>
+      child.on('close', (code, signal) => resolve({ code, signal }))
+    );
 
-      const { code, signal } = await new Promise((resolve) =>
-        child.on('close', (code, signal) => resolve({ code, signal }))
-      );
+    if (signal) {
+      return res.status(500).json({ error: 'OpenSCAD terminou por sinal (possível timeout).', details: stderr, signal });
+    }
+    if (code !== 0) {
+      return res.status(500).json({ error: 'Falha ao processar modelo 3D.', details: stderr });
+    }
+    clearTimeout(timer);
 
-      clearTimeout(timer); // ✅ sempre limpar aqui
-
-      if (signal) {
-        return res.status(500).json({
-          error: 'OpenSCAD terminou por sinal (possível timeout).',
-          details: stderr,
-          signal,
-        });
-      }
-
-      if (code !== 0) {
-        return res.status(500).json({
-          error: 'Falha ao processar modelo 3D.',
-          details: stderr,
-        });
-      }
+    if (exitCode !== 0) {
+      return res.status(500).json({ error: 'Falha ao processar modelo 3D.', details: stderr });
+    }
 
     const fileBuffer = await fsp.readFile(outputPath);
     const { error: upErr } = await supabaseAdmin.storage
