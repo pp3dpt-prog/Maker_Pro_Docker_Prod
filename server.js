@@ -205,19 +205,6 @@ app.post('/gerar-stl-pro', async (req, res) => {
 
     const params = sanitizeParams(rest);
 
-    // Map UI font names -> OpenSCAD logical font names
-    const FONT_MAP = {
-      Aladin: 'Aladin',
-      Amarante: 'Amarante',
-      Benne: 'Benne',
-      Baloo2: 'Baloo 2', // ✅ OpenSCAD usa espaço
-    };
-
-    // aplica mapping se existir
-    if (params.fonte && FONT_MAP[params.fonte]) {
-      params.fonte = FONT_MAP[params.fonte];
-    }
-
     const design = await getDesign(String(produtoId));
     if (!design) return res.status(404).json({ error: 'Design não encontrado.' });
 
