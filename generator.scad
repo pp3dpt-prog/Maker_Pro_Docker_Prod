@@ -38,22 +38,13 @@ difference() {
     else redondo_base_cubo();
 
     // Texto do Verso (Telefone)
-    
-module texto_tel() {
-  $fn = 24;
-  translate([xPosN, yPosN, -0.05])
-    rotate([0,180,0])
-      linear_extrude(height = 0.25)
-        text(telefone, size = fontSizeN, font = fonte, halign="center", valign="center");
-}
-
+    translate([-xPosN, yPosN, -0.1]) 
+    rotate([0, 180, 0])
+    linear_extrude(height = 1.1) 
+    text(telefone, size = fontSizeN, font = fonte, halign = "center", valign = "center");
 }
 
 // Nome em Relevo na frente
-
-module texto_nome() {
-  $fn = 24;
-  translate([xPos, yPos, z_superficie - 0.05])
-    linear_extrude(height = 1.05)
-      text(nome_pet, size = fontSize, font = fonte, halign="center", valign="center");
-}
+translate([xPos, yPos, z_superficie]) 
+linear_extrude(height = 1) 
+text(nome_pet, size = fontSize, font = fonte, halign = "center", valign = "center");
