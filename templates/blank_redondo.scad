@@ -1,4 +1,4 @@
-
+$fn = 100;
 altura = 3;
 
 union() {
