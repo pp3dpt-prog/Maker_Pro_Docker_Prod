@@ -1,4 +1,5 @@
 require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
 const crypto = require('crypto');
@@ -15,16 +16,17 @@ const app = express();
 // ──────────────────────────────────────────────
 const SUPABASE_URL = (process.env.SUPABASE_URL || '').trim();
 const SUPABASE_SERVICE_ROLE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
-
-// ✅ default corrigido para bater com o frontend atual
-const STORAGE_BUCKET = (process.env.STORAGE_BUCKET || 'makers_pro_stl_prod').trim();
+const STORAGE_BUCKET = (process.env.STORAGE_BUCKET || 'designs-vault').trim();
 
 const FRONTEND_ORIGIN = (process.env.FRONTEND_ORIGIN || '').trim();
 const OPENSCAD_BIN = (process.env.OPENSCAD_BIN || 'openscad').trim();
 const OPENSCAD_TIMEOUT_MS = Number(process.env.OPENSCAD_TIMEOUT_MS || '180000');
 const SIGNED_URL_TTL_SECONDS = Number(process.env.SIGNED_URL_TTL_SECONDS || '120');
+
 const DESIGNS_TABLE = (process.env.DESIGNS_TABLE || 'prod_designs').trim();
+
 const ALLOW_LEGACY_USER_ID = (process.env.ALLOW_LEGACY_USER_ID || 'false').toLowerCase() === 'true';
+
 const ALLOWED_PRODUCTS = (process.env.ALLOWED_PRODUCTS || '')
   .split(',')
   .map(s => s.trim())
@@ -126,9 +128,14 @@ function sanitizeParams(raw) {
     }
   }
 
-  // Aliases p/ compatibilidade
+  // Aliases para compatibilidade com frontend antigo:
+  // texto -> nome (o teu SCAD usa "nome")
   if (sanitized.texto && !sanitized.nome) sanitized.nome = sanitized.texto;
+
+  // tamanho -> fontSize
   if (sanitized.tamanho && !sanitized.fontSize) sanitized.fontSize = sanitized.tamanho;
+
+  // nome_pet -> nome (se existir)
   if (sanitized.nome_pet && !sanitized.nome) sanitized.nome = sanitized.nome_pet;
 
   return sanitized;
@@ -184,6 +191,7 @@ app.post('/gerar-stl-pro', async (req, res) => {
 
   try {
     const { id: produtoId, user_id: legacyUserId, mode, ...rest } = req.body || {};
+
     if (!produtoId) return res.status(400).json({ error: 'id (produtoId) é obrigatório.' });
 
     if (ALLOWED_PRODUCTS.length > 0 && !ALLOWED_PRODUCTS.includes(String(produtoId))) {
@@ -192,6 +200,7 @@ app.post('/gerar-stl-pro', async (req, res) => {
 
     const user = await getUserFromBearer(req);
     const userId = user?.id || legacyUserId;
+
     if (!userId) return res.status(401).json({ error: 'Sem utilizador autenticado.' });
 
     const params = sanitizeParams(rest);
@@ -201,8 +210,10 @@ app.post('/gerar-stl-pro', async (req, res) => {
       Aladin: 'Aladin',
       Amarante: 'Amarante',
       Benne: 'Benne',
-      Baloo2: 'Baloo 2',
+      Baloo2: 'Baloo 2', // ✅ OpenSCAD usa espaço
     };
+
+    // aplica mapping se existir
     if (params.fonte && FONT_MAP[params.fonte]) {
       params.fonte = FONT_MAP[params.fonte];
     }
@@ -214,25 +225,29 @@ app.post('/gerar-stl-pro', async (req, res) => {
     if (!templateText) return res.status(500).json({ error: 'Design sem scad_template definido.' });
 
     const renderMode = (String(mode || 'final').toLowerCase() === 'preview') ? 'preview' : 'final';
+    const qualityFn = renderMode === 'preview'
+      ? (design.qualidade_preview || 24)
+      : (design.qualidade_final || 100);
 
-    // ✅ cap de qualidade no FINAL para reduzir risco de SIGKILL
-    const rawQ = renderMode === 'preview'
-      ? (design.qualidade_preview ?? 24)
-      : (design.qualidade_final ?? 100);
-
-    const qualityFn = renderMode === 'final' ? Math.min(rawQ, 60) : rawQ;
-
+    // NOTA:
+    // Se o teu scad_template tiver $fn hardcoded nos cilindros (ex.: $fn=100),
+    // este qualityFn NÃO vai alterar o resultado. Só funciona se removeres $fn fixos.
+    // Mesmo assim, preview/final continuam EXACTOS (só mais lento).
+    //
+    // Aqui injetamos quality_fn e $fn global no topo do template (sem o modificar na BD).
     const composed = `
 quality_fn = ${qualityFn};
 $fn = quality_fn;
+
 ${templateText}
 `.trim();
 
     const templateHash = sha256(composed);
+
     scadTempPath = path.join(tmpDir, `${produtoId}_${templateHash}.scad`);
     await fsp.writeFile(scadTempPath, composed, 'utf8');
 
-    const paramsHash = sha256(`${produtoId}\n${templateHash}\n${stableStringify(params)}\n${renderMode}`);
+    const paramsHash = sha256(`${produtoId}|${templateHash}|${stableStringify(params)}|${renderMode}`);
     const outputName = `${produtoId}_${paramsHash}.stl`;
 
     const folder = `users/${userId}/${renderMode}`;
@@ -248,46 +263,48 @@ ${templateText}
 
     // OpenSCAD args
     const args = ['-o', outputPath];
+
     for (const [key, val] of Object.entries(params)) {
       if (typeof val === 'string') args.push('-D', `${key}="${val.replace(/"/g, '\\"')}"`);
       else args.push('-D', `${key}=${val}`);
     }
+
     args.push(scadTempPath);
 
     const child = spawn(OPENSCAD_BIN, args, { stdio: ['ignore', 'ignore', 'pipe'] });
 
-    let stderr = '';
-    child.stderr.on('data', (d) => {
-      const s = d.toString();
-      stderr += s.slice(0, 4000);
-      // console.error('[openscad]', s); // se quiseres logs no Render
-    });
-
-    const timer = setTimeout(() => child.kill('SIGKILL'), OPENSCAD_TIMEOUT_MS);
-
-    const { code, signal } = await new Promise((resolve) =>
-      child.on('close', (code, signal) => resolve({ code, signal }))
-    );
-
-    clearTimeout(timer);
-
-    if (signal) {
-      return res.status(500).json({
-        error: 'OpenSCAD terminou por sinal (possível timeout).',
-        details: stderr,
-        signal,
+      let stderr = '';
+      child.stderr.on('data', (d) => {
+        const s = d.toString();
+        stderr += s.slice(0, 4000);
+        // opcional mas útil para logs do Render:
+        // console.error('[openscad]', s);
       });
-    }
 
-    if (code !== 0) {
-      return res.status(500).json({
-        error: 'Falha ao processar modelo 3D.',
-        details: stderr,
-      });
-    }
+      const timer = setTimeout(() => child.kill('SIGKILL'), OPENSCAD_TIMEOUT_MS);
+
+      const { code, signal } = await new Promise((resolve) =>
+        child.on('close', (code, signal) => resolve({ code, signal }))
+      );
+
+      clearTimeout(timer); // ✅ sempre limpar aqui
+
+      if (signal) {
+        return res.status(500).json({
+          error: 'OpenSCAD terminou por sinal (possível timeout).',
+          details: stderr,
+          signal,
+        });
+      }
+
+      if (code !== 0) {
+        return res.status(500).json({
+          error: 'Falha ao processar modelo 3D.',
+          details: stderr,
+        });
+      }
 
     const fileBuffer = await fsp.readFile(outputPath);
-
     const { error: upErr } = await supabaseAdmin.storage
       .from(STORAGE_BUCKET)
       .upload(storagePath, fileBuffer, { contentType: 'model/stl', upsert: true });
@@ -296,7 +313,6 @@ ${templateText}
 
     const signedUrl = await createSignedUrl(STORAGE_BUCKET, storagePath, SIGNED_URL_TTL_SECONDS);
     return res.json({ success: true, storagePath, url: signedUrl, cached: false, mode: renderMode });
-
   } catch (err) {
     const status = err.statusCode || 500;
     return res.status(status).json({ error: err.message || 'Erro interno.' });
