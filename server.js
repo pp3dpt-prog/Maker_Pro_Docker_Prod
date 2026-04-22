@@ -20,7 +20,7 @@ const STORAGE_BUCKET = (process.env.STORAGE_BUCKET || 'designs-vault').trim();
 
 const FRONTEND_ORIGIN = (process.env.FRONTEND_ORIGIN || '').trim();
 const OPENSCAD_BIN = (process.env.OPENSCAD_BIN || 'openscad').trim();
-const OPENSCAD_TIMEOUT_MS = Number(process.env.OPENSCAD_TIMEOUT_MS || '90000');
+const OPENSCAD_TIMEOUT_MS = Number(process.env.OPENSCAD_TIMEOUT_MS || '300000');
 const SIGNED_URL_TTL_SECONDS = Number(process.env.SIGNED_URL_TTL_SECONDS || '120');
 
 const DESIGNS_TABLE = (process.env.DESIGNS_TABLE || 'prod_designs').trim();
