@@ -255,19 +255,36 @@ ${templateText}
       if (typeof val === 'string') args.push('-D', `${key}="${val.replace(/"/g, '\\"')}"`);
       else args.push('-D', `${key}=${val}`);
     }
-
+    const t0 = Date.now();
     args.push(scadTempPath);
+    console.log('[openscad] start', { produtoId, renderMode, OPENSCAD_TIMEOUT_MS });
 
     const child = spawn(OPENSCAD_BIN, args, { stdio: ['ignore', 'ignore', 'pipe'] });
+
+    child.on('error', (err) => {
+      // isto apanha ENOENT (binário não existe), EACCES (permissões), etc.
+      stderr += `\nSPAWN_ERROR: ${err.message} (code=${err.code || 'n/a'})\n`;
+    });
 
     let stderr = '';
     child.stderr.on('data', (d) => { stderr += d.toString().slice(0, 4000); });
 
     const timer = setTimeout(() => child.kill('SIGKILL'), OPENSCAD_TIMEOUT_MS);
-    const exitCode = await new Promise((resolve) => child.on('close', (code) => resolve(code)));
+    const { code, signal } = await new Promise((resolve) =>
+      child.on('close', (code, signal) => resolve({ code, signal }))
+    );
+    console.log('[openscad] end', { ms: Date.now() - t0, code, signal });
     clearTimeout(timer);
 
-    if (exitCode !== 0) {
+    if (signal) {
+      return res.status(500).json({
+        error: 'OpenSCAD terminou por sinal (possível timeout).',
+        details: stderr,
+        signal,
+      });
+    }
+
+    if (code !== 0) {
       return res.status(500).json({ error: 'Falha ao processar modelo 3D.', details: stderr });
     }
 
