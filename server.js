@@ -214,7 +214,7 @@ app.post('/gerar-stl-pro', async (req, res) => {
     const renderMode = (String(mode || 'final').toLowerCase() === 'preview') ? 'preview' : 'final';
     const qualityFn = renderMode === 'preview'
       ? (design.qualidade_preview || 24)
-      : (design.qualidade_final || 100);
+      : (design.qualidade_final || 60);
 
     // NOTA:
     // Se o teu scad_template tiver $fn hardcoded nos cilindros (ex.: $fn=100),
