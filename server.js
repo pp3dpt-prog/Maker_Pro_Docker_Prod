@@ -1,5 +1,4 @@
 require('dotenv').config();
-
 const express = require('express');
 const cors = require('cors');
 const crypto = require('crypto');
@@ -16,15 +15,19 @@ const app = express();
 // ──────────────────────────────────────────────
 const SUPABASE_URL = (process.env.SUPABASE_URL || '').trim();
 const SUPABASE_SERVICE_ROLE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+
+// Mantém o default “como estava” (para não mudares comportamento sem querer)
+// MAS idealmente define STORAGE_BUCKET no Render para o bucket real que usas no frontend.
 const STORAGE_BUCKET = (process.env.STORAGE_BUCKET || 'designs-vault').trim();
 
 const FRONTEND_ORIGIN = (process.env.FRONTEND_ORIGIN || '').trim();
 const OPENSCAD_BIN = (process.env.OPENSCAD_BIN || 'openscad').trim();
-const OPENSCAD_TIMEOUT_MS = Number(process.env.OPENSCAD_TIMEOUT_MS || '300000');
+
+// Mantém default de 90s se não houver env; ajusta no Render se precisares.
+const OPENSCAD_TIMEOUT_MS = Number(process.env.OPENSCAD_TIMEOUT_MS || '90000');
+
 const SIGNED_URL_TTL_SECONDS = Number(process.env.SIGNED_URL_TTL_SECONDS || '120');
-
 const DESIGNS_TABLE = (process.env.DESIGNS_TABLE || 'prod_designs').trim();
-
 const ALLOW_LEGACY_USER_ID = (process.env.ALLOW_LEGACY_USER_ID || 'false').toLowerCase() === 'true';
 
 const ALLOWED_PRODUCTS = (process.env.ALLOWED_PRODUCTS || '')
@@ -34,6 +37,9 @@ const ALLOWED_PRODUCTS = (process.env.ALLOWED_PRODUCTS || '')
 
 const MAX_STRING_LEN = Number(process.env.MAX_STRING_LEN || '64');
 const SAFE_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+// ✅ liga logs adicionais sem mexer no código
+const DEBUG_OPENSCAD = (process.env.DEBUG_OPENSCAD || '0').trim() === '1';
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   console.error('Faltam SUPABASE_URL e/ou SUPABASE_SERVICE_ROLE_KEY.');
@@ -128,14 +134,9 @@ function sanitizeParams(raw) {
     }
   }
 
-  // Aliases para compatibilidade com frontend antigo:
-  // texto -> nome (o teu SCAD usa "nome")
+  // Aliases p/ compatibilidade
   if (sanitized.texto && !sanitized.nome) sanitized.nome = sanitized.texto;
-
-  // tamanho -> fontSize
   if (sanitized.tamanho && !sanitized.fontSize) sanitized.fontSize = sanitized.tamanho;
-
-  // nome_pet -> nome (se existir)
   if (sanitized.nome_pet && !sanitized.nome) sanitized.nome = sanitized.nome_pet;
 
   return sanitized;
@@ -183,15 +184,17 @@ app.get('/healthz', (_req, res) => res.status(200).send('ok'));
 /**
  * POST /gerar-stl-pro
  * body: { id, mode?, ...params }
- * mode: 'preview' | 'final' (default: 'final')
  */
 app.post('/gerar-stl-pro', async (req, res) => {
   let outputPath = null;
   let scadTempPath = null;
 
+  // id para correlacionar logs/requests
+  const reqId = crypto.randomBytes(4).toString('hex');
+  const t0 = Date.now();
+
   try {
     const { id: produtoId, user_id: legacyUserId, mode, ...rest } = req.body || {};
-
     if (!produtoId) return res.status(400).json({ error: 'id (produtoId) é obrigatório.' });
 
     if (ALLOWED_PRODUCTS.length > 0 && !ALLOWED_PRODUCTS.includes(String(produtoId))) {
@@ -200,7 +203,6 @@ app.post('/gerar-stl-pro', async (req, res) => {
 
     const user = await getUserFromBearer(req);
     const userId = user?.id || legacyUserId;
-
     if (!userId) return res.status(401).json({ error: 'Sem utilizador autenticado.' });
 
     const params = sanitizeParams(rest);
@@ -212,33 +214,38 @@ app.post('/gerar-stl-pro', async (req, res) => {
     if (!templateText) return res.status(500).json({ error: 'Design sem scad_template definido.' });
 
     const renderMode = (String(mode || 'final').toLowerCase() === 'preview') ? 'preview' : 'final';
-    const qualityFn = renderMode === 'preview'
-      ? (design.qualidade_preview || 24)
-      : (design.qualidade_final || 60);
 
-    // NOTA:
-    // Se o teu scad_template tiver $fn hardcoded nos cilindros (ex.: $fn=100),
-    // este qualityFn NÃO vai alterar o resultado. Só funciona se removeres $fn fixos.
-    // Mesmo assim, preview/final continuam EXACTOS (só mais lento).
-    //
-    // Aqui injetamos quality_fn e $fn global no topo do template (sem o modificar na BD).
+    const qualityFn = renderMode === 'preview'
+      ? (design.qualidade_preview ?? 24)
+      : (design.qualidade_final ?? 100);
+
     const composed = `
 quality_fn = ${qualityFn};
 $fn = quality_fn;
-
 ${templateText}
 `.trim();
 
     const templateHash = sha256(composed);
-
     scadTempPath = path.join(tmpDir, `${produtoId}_${templateHash}.scad`);
     await fsp.writeFile(scadTempPath, composed, 'utf8');
 
-    const paramsHash = sha256(`${produtoId}|${templateHash}|${stableStringify(params)}|${renderMode}`);
+    const paramsHash = sha256(`${produtoId}\n${templateHash}\n${stableStringify(params)}\n${renderMode}`);
     const outputName = `${produtoId}_${paramsHash}.stl`;
 
     const folder = `users/${userId}/${renderMode}`;
     const storagePath = `${folder}/${outputName}`;
+
+    if (DEBUG_OPENSCAD) {
+      console.log(`[${reqId}] start`, {
+        produtoId,
+        renderMode,
+        qualityFn,
+        timeoutMs: OPENSCAD_TIMEOUT_MS,
+        bucket: STORAGE_BUCKET,
+        storagePath,
+      });
+      console.log(`[${reqId}] scad head:\n` + composed.split('\n').slice(0, 20).join('\n'));
+    }
 
     const exists = await fileExistsInStorage(STORAGE_BUCKET, folder, outputName);
     if (exists) {
@@ -250,56 +257,93 @@ ${templateText}
 
     // OpenSCAD args
     const args = ['-o', outputPath];
-
     for (const [key, val] of Object.entries(params)) {
       if (typeof val === 'string') args.push('-D', `${key}="${val.replace(/"/g, '\\"')}"`);
       else args.push('-D', `${key}=${val}`);
     }
-    const t0 = Date.now();
     args.push(scadTempPath);
-    console.log('[openscad] start', { produtoId, renderMode, OPENSCAD_TIMEOUT_MS });
+
+    if (DEBUG_OPENSCAD) {
+      console.log(`[${reqId}] openscad bin:`, OPENSCAD_BIN);
+      console.log(`[${reqId}] openscad args (first 60):`, args.slice(0, 60));
+    }
 
     const child = spawn(OPENSCAD_BIN, args, { stdio: ['ignore', 'ignore', 'pipe'] });
 
-    child.on('error', (err) => {
-      // isto apanha ENOENT (binário não existe), EACCES (permissões), etc.
-      stderr += `\nSPAWN_ERROR: ${err.message} (code=${err.code || 'n/a'})\n`;
+    let stderr = '';
+    child.stderr.on('data', (d) => {
+      const s = d.toString();
+      stderr += s.slice(0, 12000);
+      if (DEBUG_OPENSCAD) console.log(`[${reqId}] openscad stderr chunk:\n` + s);
     });
 
-    let stderr = '';
-    child.stderr.on('data', (d) => { stderr += d.toString().slice(0, 4000); });
+    let spawnErr = null;
+    child.on('error', (err) => {
+      spawnErr = { message: err.message, code: err.code };
+    });
 
     const timer = setTimeout(() => child.kill('SIGKILL'), OPENSCAD_TIMEOUT_MS);
+
     const { code, signal } = await new Promise((resolve) =>
       child.on('close', (code, signal) => resolve({ code, signal }))
     );
-    console.log('[openscad] end', { ms: Date.now() - t0, code, signal });
+
     clearTimeout(timer);
+
+    const ms = Date.now() - t0;
+
+    if (DEBUG_OPENSCAD) {
+      console.log(`[${reqId}] end`, { ms, code, signal, spawnErr });
+    }
+
+    if (spawnErr) {
+      return res.status(500).json({
+        error: 'Falha ao iniciar OpenSCAD (spawn error).',
+        details: stderr,
+        spawnErr,
+        reqId,
+        ms,
+        debug: DEBUG_OPENSCAD ? { OPENSCAD_BIN, args: args.slice(0, 60) } : undefined,
+      });
+    }
 
     if (signal) {
       return res.status(500).json({
         error: 'OpenSCAD terminou por sinal (possível timeout).',
         details: stderr,
         signal,
+        reqId,
+        ms,
+        debug: DEBUG_OPENSCAD ? { OPENSCAD_TIMEOUT_MS, qualityFn, STORAGE_BUCKET, storagePath } : undefined,
       });
     }
 
     if (code !== 0) {
-      return res.status(500).json({ error: 'Falha ao processar modelo 3D.', details: stderr });
+      return res.status(500).json({
+        error: 'Falha ao processar modelo 3D.',
+        details: stderr,
+        reqId,
+        ms,
+        debug: DEBUG_OPENSCAD ? { qualityFn, STORAGE_BUCKET, storagePath } : undefined,
+      });
     }
 
     const fileBuffer = await fsp.readFile(outputPath);
+
     const { error: upErr } = await supabaseAdmin.storage
       .from(STORAGE_BUCKET)
       .upload(storagePath, fileBuffer, { contentType: 'model/stl', upsert: true });
 
-    if (upErr) return res.status(500).json({ error: 'Erro upload Storage.', details: upErr.message });
+    if (upErr) {
+      return res.status(500).json({ error: 'Erro upload Storage.', details: upErr.message, reqId });
+    }
 
     const signedUrl = await createSignedUrl(STORAGE_BUCKET, storagePath, SIGNED_URL_TTL_SECONDS);
     return res.json({ success: true, storagePath, url: signedUrl, cached: false, mode: renderMode });
+
   } catch (err) {
     const status = err.statusCode || 500;
-    return res.status(status).json({ error: err.message || 'Erro interno.' });
+    return res.status(status).json({ error: err.message || 'Erro interno.', reqId });
   } finally {
     if (outputPath) { try { await fsp.unlink(outputPath); } catch (_) {} }
     if (scadTempPath) { try { await fsp.unlink(scadTempPath); } catch (_) {} }
@@ -310,4 +354,7 @@ app.listen(process.env.PORT || 10000, '0.0.0.0', () => {
   console.log(`STL backend a correr em :${process.env.PORT || 10000}`);
   console.log(`Designs table: ${DESIGNS_TABLE}`);
   console.log(`Bucket: ${STORAGE_BUCKET}`);
+  console.log(`OpenSCAD: ${OPENSCAD_BIN}`);
+  console.log(`Timeout(ms): ${OPENSCAD_TIMEOUT_MS}`);
+  console.log(`DEBUG_OPENSCAD: ${DEBUG_OPENSCAD ? 'ON' : 'OFF'}`);
 });
