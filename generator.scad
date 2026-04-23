@@ -38,6 +38,7 @@ difference() {
     else redondo_base_cubo();
 
     // Texto do Verso (Telefone)
+    $fn = 24;
     translate([-xPosN, yPosN, -0.1]) 
     rotate([0, 180, 0])
     linear_extrude(height = 1.1) 
@@ -45,6 +46,8 @@ difference() {
 }
 
 // Nome em Relevo na frente
+
+$fn = 24;
 translate([xPos, yPos, z_superficie]) 
 linear_extrude(height = 1) 
 text(nome_pet, size = fontSize, font = fonte, halign = "center", valign = "center");

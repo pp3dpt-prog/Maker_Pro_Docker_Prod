@@ -1,4 +1,4 @@
-$fn = 60;
+
 altura = 3;
 
 module coracao_base_cubo() {
@@ -21,7 +21,7 @@ union() {
     // Argola integrada no topo (também com aspeto robusto)
     translate([0, 14, 0]) 
     difference() {
-        cylinder(h = 2.5, r = 5.5, center 0 true);
-        translate([0, 0, -1]) cylinder(h = altura + 2, r = 2.5));
+        cylinder(h = 2.5, r = 5.5, center = true);
+        translate([0, 0, -1]) cylinder(h = altura + 2, r = 2.5);
     }
 }
