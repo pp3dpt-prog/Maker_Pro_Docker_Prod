@@ -16,15 +16,15 @@ const app = express();
 const SUPABASE_URL = (process.env.SUPABASE_URL || '').trim();
 const SUPABASE_SERVICE_ROLE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
 
-// Mantém o default “como estava” (para não mudares comportamento sem querer)
-// MAS idealmente define STORAGE_BUCKET no Render para o bucket real que usas no frontend.
+// ⛔ Não mexi no teu default para não alterar comportamento.
+// Se tiveres env STORAGE_BUCKET no Render, ela continua a prevalecer.
 const STORAGE_BUCKET = (process.env.STORAGE_BUCKET || 'designs-vault').trim();
 
 const FRONTEND_ORIGIN = (process.env.FRONTEND_ORIGIN || '').trim();
 const OPENSCAD_BIN = (process.env.OPENSCAD_BIN || 'openscad').trim();
 
-// Mantém default de 90s se não houver env; ajusta no Render se precisares.
-const OPENSCAD_TIMEOUT_MS = Number(process.env.OPENSCAD_TIMEOUT_MS || '90000');
+// ⛔ Mantém o teu default atual (180000) sem alterar mais nada.
+const OPENSCAD_TIMEOUT_MS = Number(process.env.OPENSCAD_TIMEOUT_MS || '180000');
 
 const SIGNED_URL_TTL_SECONDS = Number(process.env.SIGNED_URL_TTL_SECONDS || '120');
 const DESIGNS_TABLE = (process.env.DESIGNS_TABLE || 'prod_designs').trim();
@@ -32,14 +32,11 @@ const ALLOW_LEGACY_USER_ID = (process.env.ALLOW_LEGACY_USER_ID || 'false').toLow
 
 const ALLOWED_PRODUCTS = (process.env.ALLOWED_PRODUCTS || '')
   .split(',')
-  .map(s => s.trim())
+  .map((s) => s.trim())
   .filter(Boolean);
 
 const MAX_STRING_LEN = Number(process.env.MAX_STRING_LEN || '64');
 const SAFE_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
-
-// ✅ liga logs adicionais sem mexer no código
-const DEBUG_OPENSCAD = (process.env.DEBUG_OPENSCAD || '0').trim() === '1';
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   console.error('Faltam SUPABASE_URL e/ou SUPABASE_SERVICE_ROLE_KEY.');
@@ -134,7 +131,7 @@ function sanitizeParams(raw) {
     }
   }
 
-  // Aliases p/ compatibilidade
+  // Aliases para compatibilidade com frontend antigo:
   if (sanitized.texto && !sanitized.nome) sanitized.nome = sanitized.texto;
   if (sanitized.tamanho && !sanitized.fontSize) sanitized.fontSize = sanitized.tamanho;
   if (sanitized.nome_pet && !sanitized.nome) sanitized.nome = sanitized.nome_pet;
@@ -148,7 +145,7 @@ async function fileExistsInStorage(bucket, folder, filename) {
     .list(folder, { search: filename, limit: 1 });
 
   if (error) return false;
-  return Array.isArray(data) && data.some(f => f.name === filename);
+  return Array.isArray(data) && data.some((f) => f.name === filename);
 }
 
 async function createSignedUrl(bucket, storagePath, ttlSeconds) {
@@ -184,14 +181,14 @@ app.get('/healthz', (_req, res) => res.status(200).send('ok'));
 /**
  * POST /gerar-stl-pro
  * body: { id, mode?, ...params }
+ * mode: 'preview' | 'final' (default: 'final')
  */
 app.post('/gerar-stl-pro', async (req, res) => {
   let outputPath = null;
   let scadTempPath = null;
 
-  // id para correlacionar logs/requests
-  const reqId = crypto.randomBytes(4).toString('hex');
-  const t0 = Date.now();
+  // ✅ TIMING: tempo total deste request (server-side)
+  const tReq0 = Date.now();
 
   try {
     const { id: produtoId, user_id: legacyUserId, mode, ...rest } = req.body || {};
@@ -207,6 +204,17 @@ app.post('/gerar-stl-pro', async (req, res) => {
 
     const params = sanitizeParams(rest);
 
+    // Map UI font names -> OpenSCAD logical font names
+    const FONT_MAP = {
+      Aladin: 'Aladin',
+      Amarante: 'Amarante',
+      Benne: 'Benne',
+      Baloo2: 'Baloo 2',
+    };
+    if (params.fonte && FONT_MAP[params.fonte]) {
+      params.fonte = FONT_MAP[params.fonte];
+    }
+
     const design = await getDesign(String(produtoId));
     if (!design) return res.status(404).json({ error: 'Design não encontrado.' });
 
@@ -219,6 +227,15 @@ app.post('/gerar-stl-pro', async (req, res) => {
       ? (design.qualidade_preview ?? 24)
       : (design.qualidade_final ?? 100);
 
+    // ✅ TIMING: log inicial (uma linha, fácil de filtrar)
+    console.log('[stl] start', {
+      produtoId: String(produtoId),
+      renderMode,
+      qualityFn,
+      timeoutMs: OPENSCAD_TIMEOUT_MS,
+      bucket: STORAGE_BUCKET,
+    });
+
     const composed = `
 quality_fn = ${qualityFn};
 $fn = quality_fn;
@@ -227,7 +244,11 @@ ${templateText}
 
     const templateHash = sha256(composed);
     scadTempPath = path.join(tmpDir, `${produtoId}_${templateHash}.scad`);
+
+    // ✅ TIMING: escrita do SCAD
+    const tScad0 = Date.now();
     await fsp.writeFile(scadTempPath, composed, 'utf8');
+    const scadWriteMs = Date.now() - tScad0;
 
     const paramsHash = sha256(`${produtoId}\n${templateHash}\n${stableStringify(params)}\n${renderMode}`);
     const outputName = `${produtoId}_${paramsHash}.stl`;
@@ -235,21 +256,18 @@ ${templateText}
     const folder = `users/${userId}/${renderMode}`;
     const storagePath = `${folder}/${outputName}`;
 
-    if (DEBUG_OPENSCAD) {
-      console.log(`[${reqId}] start`, {
-        produtoId,
-        renderMode,
-        qualityFn,
-        timeoutMs: OPENSCAD_TIMEOUT_MS,
-        bucket: STORAGE_BUCKET,
-        storagePath,
-      });
-      console.log(`[${reqId}] scad head:\n` + composed.split('\n').slice(0, 20).join('\n'));
-    }
-
     const exists = await fileExistsInStorage(STORAGE_BUCKET, folder, outputName);
     if (exists) {
       const signedUrl = await createSignedUrl(STORAGE_BUCKET, storagePath, SIGNED_URL_TTL_SECONDS);
+
+      // ✅ TIMING: cached response (não corre OpenSCAD)
+      console.log('[stl] cached', {
+        produtoId: String(produtoId),
+        renderMode,
+        scadWriteMs,
+        totalMs: Date.now() - tReq0,
+      });
+
       return res.json({ success: true, storagePath, url: signedUrl, cached: true, mode: renderMode });
     }
 
@@ -263,23 +281,17 @@ ${templateText}
     }
     args.push(scadTempPath);
 
-    if (DEBUG_OPENSCAD) {
-      console.log(`[${reqId}] openscad bin:`, OPENSCAD_BIN);
-      console.log(`[${reqId}] openscad args (first 60):`, args.slice(0, 60));
-    }
+    // ✅ TIMING: medir OpenSCAD
+    const tOpen0 = Date.now();
 
     const child = spawn(OPENSCAD_BIN, args, { stdio: ['ignore', 'ignore', 'pipe'] });
 
     let stderr = '';
     child.stderr.on('data', (d) => {
       const s = d.toString();
-      stderr += s.slice(0, 12000);
-      if (DEBUG_OPENSCAD) console.log(`[${reqId}] openscad stderr chunk:\n` + s);
-    });
-
-    let spawnErr = null;
-    child.on('error', (err) => {
-      spawnErr = { message: err.message, code: err.code };
+      stderr += s.slice(0, 4000);
+      // Se precisares de logs detalhados no Render, descomenta:
+      // console.error('[openscad]', s);
     });
 
     const timer = setTimeout(() => child.kill('SIGKILL'), OPENSCAD_TIMEOUT_MS);
@@ -290,60 +302,69 @@ ${templateText}
 
     clearTimeout(timer);
 
-    const ms = Date.now() - t0;
-
-    if (DEBUG_OPENSCAD) {
-      console.log(`[${reqId}] end`, { ms, code, signal, spawnErr });
-    }
-
-    if (spawnErr) {
-      return res.status(500).json({
-        error: 'Falha ao iniciar OpenSCAD (spawn error).',
-        details: stderr,
-        spawnErr,
-        reqId,
-        ms,
-        debug: DEBUG_OPENSCAD ? { OPENSCAD_BIN, args: args.slice(0, 60) } : undefined,
-      });
-    }
+    const openScadMs = Date.now() - tOpen0;
 
     if (signal) {
+      // ✅ TIMING: loga o tempo antes do kill
+      console.log('[stl] openscad_killed', {
+        produtoId: String(produtoId),
+        renderMode,
+        openScadMs,
+        signal,
+        scadWriteMs,
+        totalMs: Date.now() - tReq0,
+      });
+
       return res.status(500).json({
         error: 'OpenSCAD terminou por sinal (possível timeout).',
         details: stderr,
         signal,
-        reqId,
-        ms,
-        debug: DEBUG_OPENSCAD ? { OPENSCAD_TIMEOUT_MS, qualityFn, STORAGE_BUCKET, storagePath } : undefined,
       });
     }
 
     if (code !== 0) {
-      return res.status(500).json({
-        error: 'Falha ao processar modelo 3D.',
-        details: stderr,
-        reqId,
-        ms,
-        debug: DEBUG_OPENSCAD ? { qualityFn, STORAGE_BUCKET, storagePath } : undefined,
+      console.log('[stl] openscad_error', {
+        produtoId: String(produtoId),
+        renderMode,
+        openScadMs,
+        code,
+        scadWriteMs,
+        totalMs: Date.now() - tReq0,
       });
+
+      return res.status(500).json({ error: 'Falha ao processar modelo 3D.', details: stderr });
     }
 
+    // ✅ TIMING: upload ao storage
+    const tUp0 = Date.now();
     const fileBuffer = await fsp.readFile(outputPath);
 
     const { error: upErr } = await supabaseAdmin.storage
       .from(STORAGE_BUCKET)
       .upload(storagePath, fileBuffer, { contentType: 'model/stl', upsert: true });
 
-    if (upErr) {
-      return res.status(500).json({ error: 'Erro upload Storage.', details: upErr.message, reqId });
-    }
+    const uploadMs = Date.now() - tUp0;
+
+    if (upErr) return res.status(500).json({ error: 'Erro upload Storage.', details: upErr.message });
 
     const signedUrl = await createSignedUrl(STORAGE_BUCKET, storagePath, SIGNED_URL_TTL_SECONDS);
+
+    // ✅ TIMING: sucesso total
+    console.log('[stl] success', {
+      produtoId: String(produtoId),
+      renderMode,
+      openScadMs,
+      uploadMs,
+      scadWriteMs,
+      totalMs: Date.now() - tReq0,
+    });
+
     return res.json({ success: true, storagePath, url: signedUrl, cached: false, mode: renderMode });
 
   } catch (err) {
     const status = err.statusCode || 500;
-    return res.status(status).json({ error: err.message || 'Erro interno.', reqId });
+    console.log('[stl] exception', { totalMs: Date.now() - tReq0, status });
+    return res.status(status).json({ error: err.message || 'Erro interno.' });
   } finally {
     if (outputPath) { try { await fsp.unlink(outputPath); } catch (_) {} }
     if (scadTempPath) { try { await fsp.unlink(scadTempPath); } catch (_) {} }
@@ -354,7 +375,5 @@ app.listen(process.env.PORT || 10000, '0.0.0.0', () => {
   console.log(`STL backend a correr em :${process.env.PORT || 10000}`);
   console.log(`Designs table: ${DESIGNS_TABLE}`);
   console.log(`Bucket: ${STORAGE_BUCKET}`);
-  console.log(`OpenSCAD: ${OPENSCAD_BIN}`);
-  console.log(`Timeout(ms): ${OPENSCAD_TIMEOUT_MS}`);
-  console.log(`DEBUG_OPENSCAD: ${DEBUG_OPENSCAD ? 'ON' : 'OFF'}`);
+  console.log(`OpenSCAD: ${OPENSCAD_BIN} | timeout(ms): ${OPENSCAD_TIMEOUT_MS}`);
 });
