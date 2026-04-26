@@ -10,261 +10,168 @@ const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
 
-/* ======================================================
-   ENV
-====================================================== */
+/* ================= ENV ================= */
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
 const STORAGE_BUCKET = process.env.STORAGE_BUCKET || 'designs-vault';
-const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || '';
 const OPENSCAD_BIN = process.env.OPENSCAD_BIN || 'openscad';
 const OPENSCAD_TIMEOUT_MS = Number(process.env.OPENSCAD_TIMEOUT_MS || 180000);
 const SIGNED_URL_TTL_SECONDS = Number(process.env.SIGNED_URL_TTL_SECONDS || 120);
 const DESIGNS_TABLE = process.env.DESIGNS_TABLE || 'prod_designs';
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-  console.error('❌ SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY em falta');
+  console.error('Missing Supabase credentials');
   process.exit(1);
 }
 
-const supabaseAdmin = createClient(
+const supabase = createClient(
   SUPABASE_URL,
   SUPABASE_SERVICE_ROLE_KEY
 );
 
-/* ======================================================
-   MIDDLEWARE
-====================================================== */
+/* ================ MIDDLEWARE ================ */
 
 app.use(express.json({ limit: '1mb' }));
-app.use(cors(FRONTEND_ORIGIN
-  ? { origin: FRONTEND_ORIGIN, credentials: true }
-  : undefined
-));
+app.use(cors());
 
 const tmpDir = path.join(__dirname, 'tmp');
 if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
 
-/* ======================================================
-   HELPERS GERAIS
-====================================================== */
+/* ================ HELPERS ================ */
 
 function sha256(s) {
   return crypto.createHash('sha256').update(s).digest('hex');
 }
 
-function stableStringify(obj) {
-  const out = {};
-  Object.keys(obj).sort().forEach(k => out[k] = obj[k]);
-  return JSON.stringify(out);
+function stable(obj) {
+  const o = {};
+  Object.keys(obj).sort().forEach(k => o[k] = obj[k]);
+  return JSON.stringify(o);
 }
 
-async function getUserFromBearer(req) {
-  const auth = req.headers.authorization || '';
-  const m = auth.match(/^Bearer\s+(.+)$/i);
-  if (!m) {
-    const e = new Error('Authorization Bearer token em falta');
-    e.statusCode = 401;
-    throw e;
-  }
-  const { data, error } = await supabaseAdmin.auth.getUser(m[1]);
-  if (error || !data?.user) {
-    const e = new Error('Token inválido');
-    e.statusCode = 401;
-    throw e;
-  }
+async function getUser(req) {
+  const h = req.headers.authorization || '';
+  const m = h.match(/^Bearer\s+(.+)$/);
+  if (!m) throw Object.assign(new Error('No token'), { statusCode: 401 });
+  const { data, error } = await supabase.auth.getUser(m[1]);
+  if (error || !data?.user)
+    throw Object.assign(new Error('Invalid token'), { statusCode: 401 });
   return data.user;
 }
 
-/* ======================================================
-   GENERATION_SCHEMA ENGINE
-====================================================== */
-
-function normalizeParams(schema, inputParams = {}) {
+function normalizeParams(schema, input = {}) {
   const out = {};
 
-  for (const [key, def] of Object.entries(schema.parameters || {})) {
-    let v = inputParams[key];
+  for (const [k, def] of Object.entries(schema.parameters)) {
+    let v = input[k];
 
-    if (v === undefined || v === null) {
-      if (def.required && def.default === undefined) {
+    if (v === undefined) {
+      if (def.required && def.default === undefined)
         throw Object.assign(
-          new Error(`Parâmetro obrigatório em falta: ${key}`),
+          new Error(`Missing param: ${k}`),
           { statusCode: 400 }
         );
-      }
       v = def.default;
     }
 
     if (def.type === 'number') {
       v = Number(v);
-      if (!Number.isFinite(v))
-        throw Object.assign(
-          new Error(`Parâmetro inválido: ${key}`),
-          { statusCode: 400 }
-        );
-      if (def.min !== undefined && v < def.min)
-        throw Object.assign(
-          new Error(`${key} abaixo do mínimo`),
-          { statusCode: 400 }
-        );
-      if (def.max !== undefined && v > def.max)
-        throw Object.assign(
-          new Error(`${key} acima do máximo`),
-          { statusCode: 400 }
-        );
-      out[key] = v;
-    }
-
-    else if (def.type === 'boolean') {
-      out[key] = v ? 1 : 0;
-    }
-
-    else if (def.type === 'string') {
-      out[key] = String(v);
-    }
-
-    else {
-      throw Object.assign(
-        new Error(`Tipo não suportado em ${key}`),
-        { statusCode: 400 }
-      );
+      if (!Number.isFinite(v)) throw new Error(`Invalid number: ${k}`);
+      out[k] = v;
+    } else if (def.type === 'boolean') {
+      out[k] = v ? 1 : 0;
+    } else if (def.type === 'string') {
+      out[k] = String(v);
     }
   }
 
   return out;
 }
 
-function buildScadWrapper({ params, schema, mode }) {
+function buildWrapper({ entry, params, mode, schema }) {
   const lines = [];
-
-  lines.push('// AUTO-GENERATED — DO NOT EDIT');
-  lines.push('');
+  lines.push('// AUTO-GENERATED, DO NOT EDIT\n');
 
   for (const [k, v] of Object.entries(params)) {
-    lines.push(
-      typeof v === 'string'
-        ? `${k} = "${v.replace(/"/g, '\\"')}";`
-        : `${k} = ${v};`
-    );
+    lines.push(typeof v === 'string'
+      ? `${k}="${v.replace(/"/g, '\\"')}";`
+      : `${k}=${v};`);
   }
 
   const q = schema.modes?.[mode]?.quality_fn;
   if (q) {
-    lines.push('');
-    lines.push(`quality_fn = ${q};`);
-    lines.push(`$fn = quality_fn;`);
+    lines.push(`quality_fn=${q};`);
+    lines.push(`$fn=quality_fn;`);
   }
 
-  lines.push('');
-  lines.push(`use <${schema.entry}>;`);
-  lines.push('render();');
+  lines.push(`\nuse <${entry}>;`);
+  lines.push(`render();`);
 
   return lines.join('\n');
 }
 
-/* ======================================================
-   ROUTE PRINCIPAL
-====================================================== */
+/* ================ ROUTE ================ */
 
 app.post('/gerar-stl-pro', async (req, res) => {
-  let scadPath = null;
-  let outPath = null;
+  let scadFile, outFile;
 
   try {
-    const { id: produtoId, mode = 'final', params } = req.body || {};
-    if (!produtoId) {
-      return res.status(400).json({ error: 'id é obrigatório' });
-    }
+    const { id, mode = 'final', params } = req.body || {};
+    if (!id) return res.status(400).json({ error: 'id required' });
 
-    const user = await getUserFromBearer(req);
+    const user = await getUser(req);
 
-    const { data: design, error } = await supabaseAdmin
+    const { data: design } = await supabase
       .from(DESIGNS_TABLE)
-      .select('generation_schema, scad_entry')
-      .eq('id', produtoId)
+      .select('generation_schema')
+      .eq('id', id)
       .maybeSingle();
 
-    if (error || !design) {
-      return res.status(404).json({ error: 'Design não encontrado' });
-    }
+    if (!design?.generation_schema)
+      return res.status(404).json({ error: 'Design not found' });
 
     const schema = design.generation_schema;
-    if (!schema || !schema.parameters || !schema.entry) {
-      return res.status(500).json({ error: 'generation_schema inválido' });
-    }
-
     const normalized = normalizeParams(schema, params);
-    const scadText = buildScadWrapper({
+
+    const wrapper = buildWrapper({
+      entry: schema.entry,
       params: normalized,
-      schema,
-      mode
+      mode,
+      schema
     });
 
-    const hash = sha256(
-      produtoId + stableStringify(normalized) + mode
-    );
+    const hash = sha256(id + stable(normalized) + mode);
+    scadFile = path.join(tmpDir, `${hash}.scad`);
+    outFile = path.join(tmpDir, `${hash}.stl`);
 
-    scadPath = path.join(tmpDir, `${produtoId}_${hash}.scad`);
-    outPath = path.join(tmpDir, `${produtoId}_${hash}.stl`);
-
-    await fsp.writeFile(scadPath, scadText, 'utf8');
+    await fsp.writeFile(scadFile, wrapper);
 
     await new Promise((resolve, reject) => {
-      const child = spawn(
-        OPENSCAD_BIN,
-        ['-o', outPath, scadPath],
-        { stdio: 'inherit' }
-      );
-
-      const timer = setTimeout(() => {
-        child.kill('SIGKILL');
-        reject(new Error('Timeout OpenSCAD'));
-      }, OPENSCAD_TIMEOUT_MS);
-
-      child.on('close', code => {
-        clearTimeout(timer);
-        code === 0 ? resolve() : reject(new Error('Erro OpenSCAD'));
-      });
+      const p = spawn(OPENSCAD_BIN, ['-o', outFile, scadFile]);
+      const t = setTimeout(() => p.kill('SIGKILL'), OPENSCAD_TIMEOUT_MS);
+      p.on('close', c => { clearTimeout(t); c === 0 ? resolve() : reject(); });
     });
 
-    const fileBuffer = await fsp.readFile(outPath);
-    const storagePath = `users/${user.id}/${produtoId}_${hash}.stl`;
+    const buffer = await fsp.readFile(outFile);
+    const storagePath = `users/${user.id}/${id}_${hash}.stl`;
 
-    await supabaseAdmin.storage
+    await supabase.storage
       .from(STORAGE_BUCKET)
-      .upload(storagePath, fileBuffer, {
-        contentType: 'model/stl',
-        upsert: true
-      });
+      .upload(storagePath, buffer, { upsert: true });
 
-    const { data: signed } = await supabaseAdmin.storage
+    const { data: signed } = await supabase.storage
       .from(STORAGE_BUCKET)
       .createSignedUrl(storagePath, SIGNED_URL_TTL_SECONDS);
 
-    return res.json({
-      success: true,
-      storagePath,
-      url: signed.signedUrl
-    });
+    res.json({ success: true, url: signed.signedUrl });
 
-  } catch (err) {
-    console.error(err);
-    return res.status(err.statusCode || 500).json({
-      error: err.message || 'Erro interno'
-    });
+  } catch (e) {
+    res.status(e.statusCode || 500).json({ error: e.message });
   } finally {
-    if (scadPath) try { await fsp.unlink(scadPath); } catch {}
-    if (outPath) try { await fsp.unlink(outPath); } catch {}
+    if (scadFile) try { fs.unlinkSync(scadFile); } catch {}
+    if (outFile) try { fs.unlinkSync(outFile); } catch {}
   }
 });
 
-/* ======================================================
-   BOOT
-====================================================== */
-
-app.listen(process.env.PORT || 10000, '0.0.0.0', () => {
-  console.log('✅ STL backend ativo');
-});
+app.listen(10000, () => console.log('✅ STL backend running'));
