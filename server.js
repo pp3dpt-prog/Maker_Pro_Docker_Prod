@@ -27,8 +27,7 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   process.exit(1);
 }
 
-console.log('✅ Backend STL a iniciar');
-console.log('OPENSCAD_BIN:', OPENSCAD_BIN);
+console.log('✅ STL backend a iniciar');
 
 /* ================= SUPABASE ================= */
 
@@ -46,8 +45,6 @@ const tmpDir = path.join(__dirname, 'tmp');
 if (!fs.existsSync(tmpDir)) {
   fs.mkdirSync(tmpDir, { recursive: true });
 }
-
-console.log('TMP DIR:', tmpDir);
 
 /* ================= HELPERS ================= */
 
@@ -108,26 +105,24 @@ function normalizeParams(schema, input = {}) {
   return out;
 }
 
-function buildWrapper({ entry, params, mode, schema }) {
-  const lines = [];
-  lines.push('// AUTO-GENERATED — DEBUG ENABLED\n');
+/* ================= SCAD BUILDER ================= */
 
+function buildScadFile({ params, scadTemplate }) {
+  const lines = [];
+
+  lines.push('// AUTO-GENERATED — DO NOT EDIT\n');
+
+  // Variáveis injetadas
   for (const [k, v] of Object.entries(params)) {
     if (typeof v === 'string') {
-      lines.push(`${k}="${v.replace(/"/g, '\\"')}";`);
+      lines.push(`${k} = "${v.replace(/"/g, '\\"')}";`);
     } else {
-      lines.push(`${k}=${v};`);
+      lines.push(`${k} = ${v};`);
     }
   }
 
-  const q = schema.modes?.[mode]?.quality_fn;
-  if (q) {
-    lines.push(`quality_fn=${q};`);
-    lines.push(`$fn=quality_fn;`);
-  }
-
-  lines.push(`use <${entry}>;`);
-  lines.push(`render();`);
+  lines.push('\n// ===== TEMPLATE DA BD =====\n');
+  lines.push(scadTemplate);
 
   return lines.join('\n');
 }
@@ -141,85 +136,67 @@ app.get('/health', (_req, res) => {
 /* ================= ROUTE ================= */
 
 app.post('/gerar-stl-pro', async (req, res) => {
-  let scadFile, outFile;
+  let scadFile;
+  let outFile;
 
   try {
-    console.log('\n🚀 NOVO PEDIDO /gerar-stl-pro');
+    console.log('\n🚀 /gerar-stl-pro');
 
     const { id, mode = 'final', params } = req.body || {};
-    console.log('Body recebido:', req.body);
-
     if (!id) {
       return res.status(400).json({ error: 'id required' });
     }
 
     const user = await getUser(req);
-    console.log('Utilizador:', user.id);
 
     const { data: design } = await supabase
       .from(DESIGNS_TABLE)
-      .select('generation_schema')
+      .select('generation_schema, scad_template')
       .eq('id', id)
       .maybeSingle();
 
-    if (!design?.generation_schema) {
-      return res.status(404).json({ error: 'Design not found' });
+    if (!design?.generation_schema || !design?.scad_template) {
+      return res.status(404).json({ error: 'Design incompleto ou inexistente' });
     }
 
     const schema = design.generation_schema;
-    console.log('Schema entry:', schema.entry);
+    const scadTemplate = design.scad_template;
 
     const normalized = normalizeParams(schema, params);
-    console.log('Params normalizados:', normalized);
-
-    const wrapper = buildWrapper({
-      entry: schema.entry,
-      params: normalized,
-      mode,
-      schema
-    });
 
     const hash = sha256(id + stable(normalized) + mode);
     scadFile = path.join(tmpDir, `${hash}.scad`);
     outFile = path.join(tmpDir, `${hash}.stl`);
 
-    console.log('SCAD:', scadFile);
-    console.log('STL:', outFile);
+    const scadContent = buildScadFile({
+      params: normalized,
+      scadTemplate
+    });
 
-    await fsp.writeFile(scadFile, wrapper);
+    await fsp.writeFile(scadFile, scadContent);
 
     await new Promise((resolve, reject) => {
-      console.log('🛠 A executar OpenSCAD…');
-
       const p = spawn(OPENSCAD_BIN, ['-o', outFile, scadFile]);
 
       const t = setTimeout(() => {
-        console.error('⏱ TIMEOUT OpenSCAD');
         p.kill('SIGKILL');
+        reject(new Error('OpenSCAD timeout'));
       }, OPENSCAD_TIMEOUT_MS);
 
-      p.stdout.on('data', d => {
-        console.log('[OpenSCAD STDOUT]', d.toString());
-      });
-
       p.stderr.on('data', d => {
-        console.error('[OpenSCAD STDERR]', d.toString());
+        console.error('[OpenSCAD]', d.toString());
       });
 
       p.on('close', code => {
         clearTimeout(t);
-        if (code === 0) {
-          console.log('✅ OpenSCAD terminou com sucesso');
-          resolve();
-        } else {
-          reject(new Error(`OpenSCAD exit code ${code}`));
-        }
+        code === 0 ? resolve() : reject(new Error(`OpenSCAD exit ${code}`));
       });
     });
 
     const buffer = await fsp.readFile(outFile);
 
     const storagePath = `tmp/${user.id}/${id}_${hash}.stl`;
+
     await supabase.storage
       .from(STORAGE_BUCKET)
       .upload(storagePath, buffer, { upsert: true });
@@ -228,14 +205,12 @@ app.post('/gerar-stl-pro', async (req, res) => {
       .from(STORAGE_BUCKET)
       .createSignedUrl(storagePath, SIGNED_URL_TTL_SECONDS);
 
-    console.log('✅ STL gerado com sucesso');
-
     res.json({
       success: true,
       url: signed.signedUrl
     });
   } catch (e) {
-    console.error('❌ ERRO GERAÇÃO STL:', e);
+    console.error('❌ ERRO STL:', e);
     res.status(e.statusCode || 500).json({ error: e.message });
   } finally {
     if (scadFile) try { fs.unlinkSync(scadFile); } catch {}
