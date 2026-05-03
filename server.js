@@ -21,7 +21,7 @@ app.use(express.json({ limit: '10mb' }));
 app.post('/download-stl', downloadStl);
 
 // Exemplo se tiveres preview:
- app.use('/preview', previewRouter);
+ app.use('/api/preview', previewRouter);
 
 // ============================
 // Health check (IMPORTANTE)

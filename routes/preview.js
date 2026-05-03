@@ -1,34 +1,80 @@
 import express from 'express';
-import { runOpenSCAD } from '../utils/scadProcessor.js';
+import fs from 'fs';
 import path from 'path';
+import { spawn } from 'child_process';
+import { v4 as uuid } from 'uuid';
+import { createClient } from '@supabase/supabase-js';
 
 const router = express.Router();
+
+// Diretório temporário (igual filosofia do download)
+const TMP_DIR = path.join(process.cwd(), 'temp');
+if (!fs.existsSync(TMP_DIR)) {
+  fs.mkdirSync(TMP_DIR, { recursive: true });
+}
+
+// Supabase (igual ao download)
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
 // POST /api/preview
 router.post('/', async (req, res) => {
   try {
-    const { text, font, size, designId } = req.body;
+    const { design_id, params } = req.body;
 
-    // Validação básica
-    if (!text || text.length > 20) {
-      return res.status(400).json({
-        error: 'Texto inválido ou muito longo'
-      });
+    if (!design_id || !params) {
+      return res.status(400).send('INVALID_REQUEST');
     }
 
-    const tempId = `${designId}_${Date.now()}`;
+    // 1️⃣ Buscar template SCAD à BD
+    const { data: design, error } = await supabase
+      .from('prod_designs')
+      .select('scad_template')
+      .eq('id', design_id)
+      .single();
 
-    const imagePath = await runOpenSCAD(
-      { text, font, size, id: tempId },
-      'png'
+    if (error || !design) {
+      return res.status(404).send('DESIGN_NOT_FOUND');
+    }
+
+    // 2️⃣ Gerar SCAD temporário
+    const jobId = uuid();
+    const scadPath = path.join(TMP_DIR, `${jobId}.scad`);
+    const pngPath = path.join(TMP_DIR, `${jobId}.png`);
+
+    const vars = Object.entries(params)
+      .map(([k, v]) => {
+        if (typeof v === 'string') return `${k} = "${v}";`;
+        if (typeof v === 'boolean') return `${k} = ${v ? 1 : 0};`;
+        return `${k} = ${v};`;
+      })
+      .join('\n');
+
+    fs.writeFileSync(
+      scadPath,
+      `${vars}\n\n${design.scad_template}\n\ncorpo_caixa();\n`
     );
 
-    res.sendFile(path.resolve(imagePath));
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      error: 'Erro ao gerar antevisão'
+    // 3️⃣ OpenSCAD → PNG
+    const p = spawn('openscad', [
+      '--imgsize=800,600',
+      '-o',
+      pngPath,
+      scadPath,
+    ]);
+
+    p.on('close', code => {
+      if (code !== 0) {
+        return res.status(500).send('OPENSCAD_FAILED');
+      }
+      return res.sendFile(pngPath);
     });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('PREVIEW_FAILED');
   }
 });
 
