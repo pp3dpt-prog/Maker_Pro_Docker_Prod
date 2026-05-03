@@ -19,14 +19,7 @@ if (!fs.existsSync(TMP_DIR)) {
 // ============================
 // Supabase
 // ============================
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-  throw new Error(
-    'Env vars em falta: NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY'
-  );
-}
 
 const supabase = createClient(
   SUPABASE_URL,
@@ -90,6 +83,16 @@ export async function downloadStl(req, res) {
     if (designError || !design) {
       return res.status(404).send('DESIGN_NOT_FOUND');
     }
+
+    
+    if (
+    !process.env.NEXT_PUBLIC_SUPABASE_URL ||
+    !process.env.SUPABASE_SERVICE_ROLE_KEY
+    ) {
+    console.error('Env vars em falta no runtime');
+    return res.status(500).send('SERVER_MISCONFIGURED');
+    }
+
 
     const cost = design.credit_cost ?? 1;
 
