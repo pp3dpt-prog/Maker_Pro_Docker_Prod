@@ -17,13 +17,11 @@ if (!fs.existsSync(TMP_DIR)) {
 }
 
 // ============================
-// Supabase
+// Supabase client (NO throw here)
 // ============================
-
-
 const supabase = createClient(
-  SUPABASE_URL,
-  SUPABASE_SERVICE_ROLE_KEY
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
 // ============================
@@ -36,7 +34,10 @@ async function getUser(req) {
   const token = authHeader.replace('Bearer ', '');
   const { data, error } = await supabase.auth.getUser(token);
 
-  if (error || !data || !data.user) throw new Error('UNAUTHORIZED');
+  if (error || !data || !data.user) {
+    throw new Error('UNAUTHORIZED');
+  }
+
   return data.user;
 }
 
@@ -62,10 +63,19 @@ async function gerarSTL({ scadTemplate, params, moduleCall, outFile }) {
 }
 
 // ============================
-// Route handler (Express)
+// Route (Express handler)
 // ============================
 export async function downloadStl(req, res) {
   try {
+    // ✅ Validate env vars at runtime (NOT at boot)
+    if (
+      !process.env.NEXT_PUBLIC_SUPABASE_URL ||
+      !process.env.SUPABASE_SERVICE_ROLE_KEY
+    ) {
+      console.error('SERVER_MISCONFIGURED: missing Supabase env vars');
+      return res.status(500).send('SERVER_MISCONFIGURED');
+    }
+
     const user = await getUser(req);
     const { design_id, params } = req.body;
 
@@ -73,7 +83,9 @@ export async function downloadStl(req, res) {
       return res.status(400).send('INVALID_REQUEST');
     }
 
+    // ----------------------------
     // Fetch design
+    // ----------------------------
     const { data: design, error: designError } = await supabase
       .from('prod_designs')
       .select('scad_template, credit_cost')
@@ -84,19 +96,11 @@ export async function downloadStl(req, res) {
       return res.status(404).send('DESIGN_NOT_FOUND');
     }
 
-    
-    if (
-    !process.env.NEXT_PUBLIC_SUPABASE_URL ||
-    !process.env.SUPABASE_SERVICE_ROLE_KEY
-    ) {
-    console.error('Env vars em falta no runtime');
-    return res.status(500).send('SERVER_MISCONFIGURED');
-    }
-
-
     const cost = design.credit_cost ?? 1;
 
+    // ----------------------------
     // Check credits
+    // ----------------------------
     const { data: perfil } = await supabase
       .from('prod_perfis')
       .select('creditos_disponiveis')
@@ -107,12 +111,14 @@ export async function downloadStl(req, res) {
       return res.status(402).send('INSUFFICIENT_CREDITS');
     }
 
+    // ----------------------------
     // Generate STL(s)
+    // ----------------------------
     const jobId = uuid();
     const base = path.join(TMP_DIR, jobId);
     const files = [];
 
-    // Caixa
+    // Caixa (sempre)
     const caixaPath = `${base}_caixa.stl`;
     await gerarSTL({
       scadTemplate: design.scad_template,
@@ -122,7 +128,7 @@ export async function downloadStl(req, res) {
     });
     files.push({ name: 'caixa.stl', path: caixaPath });
 
-    // Tampa (boolean)
+    // Tampa (opcional — boolean)
     if (params.tem_tampa === true) {
       const tampaPath = `${base}_tampa.stl`;
       await gerarSTL({
@@ -134,7 +140,9 @@ export async function downloadStl(req, res) {
       files.push({ name: 'tampa.stl', path: tampaPath });
     }
 
+    // ----------------------------
     // Debit credits
+    // ----------------------------
     await supabase.from('prod_transacoes').insert({
       user_id: user.id,
       descricao: `Download STL (${design_id})`,
@@ -148,7 +156,9 @@ export async function downloadStl(req, res) {
       })
       .eq('id', user.id);
 
-    // Respond
+    // ----------------------------
+    // Respond download
+    // ----------------------------
     if (files.length === 1) {
       res.setHeader('Content-Type', 'application/octet-stream');
       res.setHeader(
@@ -158,6 +168,7 @@ export async function downloadStl(req, res) {
       return fs.createReadStream(files[0].path).pipe(res);
     }
 
+    // ZIP (2 STLs)
     const archive = archiver('zip', { zlib: { level: 9 } });
     const zipStream = new PassThrough();
 
@@ -177,3 +188,4 @@ export async function downloadStl(req, res) {
     res.status(500).send('DOWNLOAD_FAILED');
   }
 }
+``
