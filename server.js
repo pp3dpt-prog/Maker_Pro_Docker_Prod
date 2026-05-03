@@ -5,7 +5,7 @@ import cors from 'cors';
 // Importa as rotas do backend
 import { downloadStl } from './routes/download.js';
 // Se tiveres preview:
-// import { gerarPreview } from './routes/preview.js';
+ import { previewRouter } from './routes/preview.js';
 
 const app = express();
 
@@ -21,7 +21,7 @@ app.use(express.json({ limit: '10mb' }));
 app.post('/download-stl', downloadStl);
 
 // Exemplo se tiveres preview:
-// app.post('/gerar-stl', gerarPreview);
+ app.use('/preview', previewRouter);
 
 // ============================
 // Health check (IMPORTANTE)
