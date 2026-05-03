@@ -2,11 +2,13 @@
   "name": "makers_pro_stl_prod",
   "version": "1.0.0",
   "main": "server.js",
+  "type": "module",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.38.0",
+    "archiver": "^7.0.1",
     "body-parser": "^1.19.0",
     "cors": "^2.8.5",
     "dotenv": "^16.0.0",
