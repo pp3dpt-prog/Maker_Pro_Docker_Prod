@@ -11,6 +11,11 @@ const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
 
+
+import { downloadStl } from './routes/download.js';
+
+app.post('/download-stl', downloadStl);
+
 /* ================= ENV ================= */
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
