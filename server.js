@@ -2,10 +2,8 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 
-// Importa as rotas do backend
 import { downloadStl } from './routes/download.js';
-// Se tiveres preview:
- import { previewRouter } from './routes/preview.js';
+import previewRouter from './routes/preview.js';
 
 const app = express();
 
@@ -18,13 +16,15 @@ app.use(express.json({ limit: '10mb' }));
 // ============================
 // Rotas
 // ============================
+
+// Download final do STL (com login / créditos)
 app.post('/download-stl', downloadStl);
 
-// Exemplo se tiveres preview:
- app.use('/api/preview', previewRouter);
+// Preview (PNG) — sem créditos
+app.use('/api/preview', previewRouter);
 
 // ============================
-// Health check (IMPORTANTE)
+// Health check (Render)
 // ============================
 app.get('/health', (_req, res) => {
   res.status(200).send('OK');
