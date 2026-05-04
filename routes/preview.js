@@ -19,7 +19,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// POST /api/preview
+// POST /api/preview (agora gera STL)
 router.post('/', async (req, res) => {
   try {
     const { design_id, params } = req.body;
@@ -40,7 +40,7 @@ router.post('/', async (req, res) => {
 
     const jobId = uuid();
     const scadPath = path.join(TMP_DIR, `${jobId}.scad`);
-    const pngPath = path.join(TMP_DIR, `${jobId}.png`);
+    const stlPath = path.join(TMP_DIR, `${jobId}.stl`);
 
     const vars = Object.entries(params)
       .map(([k, v]) => {
@@ -50,38 +50,23 @@ router.post('/', async (req, res) => {
       })
       .join('\n');
 
-    const finalScad = `
-${vars}
-
-${design.scad_template}
-
-corpo_caixa();
-if (tem_tampa == 1) {
-  tampa_caixa();
-}
-`;
-
-    fs.writeFileSync(scadPath, finalScad);
-
-    // ✅ OpenSCAD HEADLESS REAL
-    const p = spawn('openscad', [
-      '--preview=throwntogether',  // ✅ CHAVE
-      '--viewall',
-      '--imgsize=800,600',
-      '-o',
-      pngPath,
+    fs.writeFileSync(
       scadPath,
-    ]);
+      `${vars}\n\n${design.scad_template}\n\ncorpo_caixa();\n`
+    );
 
-    p.stderr.on('data', data => {
-      console.error('OPENSCAD STDERR:', data.toString());
-    });
+    // ✅ OpenSCAD → STL (headless, estável)
+    const p = spawn('openscad', ['-o', stlPath, scadPath]);
 
     p.on('close', code => {
       if (code !== 0) {
         return res.status(500).send('OPENSCAD_FAILED');
       }
-      return res.sendFile(pngPath);
+
+      res.setHeader('Content-Type', 'model/stl');
+      res.setHeader('Cache-Control', 'no-store');
+
+      return res.sendFile(stlPath);
     });
 
   } catch (err) {
