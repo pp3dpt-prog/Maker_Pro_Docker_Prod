@@ -7,19 +7,25 @@ import { createClient } from '@supabase/supabase-js';
 
 const router = express.Router();
 
-// Diretório temporário (igual filosofia do download)
+// ============================
+// Diretório temporário
+// ============================
 const TMP_DIR = path.join(process.cwd(), 'temp');
 if (!fs.existsSync(TMP_DIR)) {
   fs.mkdirSync(TMP_DIR, { recursive: true });
 }
 
-// Supabase (igual ao download)
+// ============================
+// Supabase
+// ============================
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+// ============================
 // POST /api/preview
+// ============================
 router.post('/', async (req, res) => {
   try {
     const { design_id, params } = req.body;
@@ -41,10 +47,7 @@ router.post('/', async (req, res) => {
       return res.status(404).send('DESIGN_NOT_FOUND');
     }
 
-    console.log('✅ DESIGN ID:', design_id);
-    console.log('✅ SCAD TEMPLATE DA BD:\n', design.scad_template);
-
-    // 2️⃣ Gerar SCAD temporário
+    // 2️⃣ Gerar ficheiros temporários
     const jobId = uuid();
     const scadPath = path.join(TMP_DIR, `${jobId}.scad`);
     const pngPath = path.join(TMP_DIR, `${jobId}.png`);
@@ -63,21 +66,23 @@ ${vars}
 ${design.scad_template}
 
 corpo_caixa();
+if (tem_tampa == 1) {
+  tampa_caixa();
+}
 `;
 
     fs.writeFileSync(scadPath, finalScad);
 
-    console.log('✅ SCAD FINAL GERADO:\n', finalScad);
-
-    // 3️⃣ OpenSCAD → PNG
+    // 3️⃣ OpenSCAD → PNG (HEADLESS)
     const p = spawn('openscad', [
+      '--backend', 'cgal',     // ✅ ESSENCIAL EM SERVIDOR
       '--imgsize=800,600',
       '-o',
       pngPath,
       scadPath,
     ]);
 
-    // 🔎 LOGS CRÍTICOS
+    // Logs úteis (podes remover depois)
     p.stdout.on('data', data => {
       console.log('🟢 OPENSCAD STDOUT:', data.toString());
     });
