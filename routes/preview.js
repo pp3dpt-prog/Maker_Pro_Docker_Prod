@@ -25,6 +25,7 @@ router.post('/', async (req, res) => {
     const { design_id, params } = req.body;
 
     if (!design_id || !params) {
+      console.error('❌ INVALID_REQUEST:', req.body);
       return res.status(400).send('INVALID_REQUEST');
     }
 
@@ -36,8 +37,12 @@ router.post('/', async (req, res) => {
       .single();
 
     if (error || !design) {
+      console.error('❌ DESIGN_NOT_FOUND:', design_id, error);
       return res.status(404).send('DESIGN_NOT_FOUND');
     }
+
+    console.log('✅ DESIGN ID:', design_id);
+    console.log('✅ SCAD TEMPLATE DA BD:\n', design.scad_template);
 
     // 2️⃣ Gerar SCAD temporário
     const jobId = uuid();
@@ -52,10 +57,17 @@ router.post('/', async (req, res) => {
       })
       .join('\n');
 
-    fs.writeFileSync(
-      scadPath,
-      `${vars}\n\n${design.scad_template}\n\ncorpo_caixa();\n`
-    );
+    const finalScad = `
+${vars}
+
+${design.scad_template}
+
+corpo_caixa();
+`;
+
+    fs.writeFileSync(scadPath, finalScad);
+
+    console.log('✅ SCAD FINAL GERADO:\n', finalScad);
 
     // 3️⃣ OpenSCAD → PNG
     const p = spawn('openscad', [
@@ -65,15 +77,27 @@ router.post('/', async (req, res) => {
       scadPath,
     ]);
 
+    // 🔎 LOGS CRÍTICOS
+    p.stdout.on('data', data => {
+      console.log('🟢 OPENSCAD STDOUT:', data.toString());
+    });
+
+    p.stderr.on('data', data => {
+      console.error('🔴 OPENSCAD STDERR:', data.toString());
+    });
+
     p.on('close', code => {
+      console.log('🟡 OPENSCAD EXIT CODE:', code);
+
       if (code !== 0) {
         return res.status(500).send('OPENSCAD_FAILED');
       }
+
       return res.sendFile(pngPath);
     });
 
   } catch (err) {
-    console.error(err);
+    console.error('❌ PREVIEW_FAILED:', err);
     res.status(500).send('PREVIEW_FAILED');
   }
 });
