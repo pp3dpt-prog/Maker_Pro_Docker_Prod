@@ -63,9 +63,9 @@ if (tem_tampa == 1) {
 
     fs.writeFileSync(scadPath, finalScad);
 
-    // ✅ OpenSCAD headless compatível
+    // ✅ OpenSCAD HEADLESS REAL
     const p = spawn('openscad', [
-      '--render',
+      '--preview=throwntogether',  // ✅ CHAVE
       '--viewall',
       '--imgsize=800,600',
       '-o',
