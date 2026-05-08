@@ -152,7 +152,7 @@ export async function downloadStl(req, res) {
     console.log('A gerar caixa...');
     await gerarSTL({
       scadTemplate: design.scad_template,
-      params: { ...paramsNormalizados, modo: '"corpo"' },
+      params: { ...paramsNormalizados, modo: 'corpo' },
       outFile: caixaPath,
     });
     console.log('✅ Caixa gerada:', fs.existsSync(caixaPath));
@@ -164,7 +164,7 @@ export async function downloadStl(req, res) {
       console.log('A gerar tampa...');
       await gerarSTL({
         scadTemplate: design.scad_template,
-        params: { ...paramsNormalizados, modo: '"tampa"' },
+        params: { ...paramsNormalizados, modo: 'tampa' },
         outFile: tampaPath,
       });
       console.log('✅ Tampa gerada:', fs.existsSync(tampaPath));
