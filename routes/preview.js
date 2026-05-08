@@ -7,19 +7,16 @@ import { createClient } from '@supabase/supabase-js';
 
 const router = express.Router();
 
-// Diretório temporário
 const TMP_DIR = path.join(process.cwd(), 'temp');
 if (!fs.existsSync(TMP_DIR)) {
   fs.mkdirSync(TMP_DIR, { recursive: true });
 }
 
-// Supabase
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// POST /api/preview (agora gera STL)
 router.post('/', async (req, res) => {
   try {
     const { design_id, params } = req.body;
@@ -42,35 +39,47 @@ router.post('/', async (req, res) => {
     const scadPath = path.join(TMP_DIR, `${jobId}.scad`);
     const stlPath = path.join(TMP_DIR, `${jobId}.stl`);
 
+    // Normalizar parâmetros
     const vars = Object.entries(params)
       .map(([k, v]) => {
-        if (typeof v === 'string') return `${k} = "${v}";`;
         if (typeof v === 'boolean') return `${k} = ${v ? 1 : 0};`;
+        if (typeof v === 'string') return `${k} = "${v}";`;
         return `${k} = ${v};`;
       })
       .join('\n');
 
+    // Para preview não injetamos modo — o template usa "preview" por defeito
+    // MAS o template já não tem modo declarado, então temos de injetar
     fs.writeFileSync(
       scadPath,
-      `${vars}\n\n${design.scad_template}\n`
+      `${vars}\nmodo = "preview";\n\n${design.scad_template}\n`
     );
 
-    // ✅ OpenSCAD → STL (headless, estável)
     const p = spawn('openscad', ['-o', stlPath, scadPath]);
+
+    let stderrOutput = '';
+    p.stderr.on('data', (data) => { stderrOutput += data.toString(); });
 
     p.on('close', code => {
       if (code !== 0) {
+        console.error('OpenSCAD preview failed:', stderrOutput);
         return res.status(500).send('OPENSCAD_FAILED');
       }
 
+      // ✅ Ler o ficheiro e enviar como buffer — mais fiável que sendFile
+      const buffer = fs.readFileSync(stlPath);
       res.setHeader('Content-Type', 'model/stl');
       res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Content-Length', buffer.length);
+      res.end(buffer);
 
-      return res.sendFile(stlPath);
+      // Limpar ficheiros temporários
+      fs.unlink(scadPath, () => {});
+      fs.unlink(stlPath, () => {});
     });
 
   } catch (err) {
-    console.error(err);
+    console.error('PREVIEW_FAILED:', err);
     res.status(500).send('PREVIEW_FAILED');
   }
 });
