@@ -42,9 +42,14 @@ router.post('/', async (req, res) => {
     const stlPath = path.join(TMP_DIR, `${jobId}.stl`);
 
     // Normalizar parâmetros
-    const vars = Object.entries(params)
+    // Normalizar tem_tampa explicitamente
+    const paramsNormalizados = {
+      ...params,
+      tem_tampa: params.tem_tampa ? 1 : 0,
+    };
+
+    const vars = Object.entries(paramsNormalizados)
       .map(([k, v]) => {
-        if (typeof v === 'boolean') return `${k} = ${v ? 1 : 0};`;
         if (typeof v === 'string') return `${k} = "${v}";`;
         return `${k} = ${v};`;
       })
