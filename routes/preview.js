@@ -55,12 +55,14 @@ router.post('/', async (req, res) => {
       })
       .join('\n');
 
-    // Para preview não injetamos modo — o template usa "preview" por defeito
+    const scadContent = `${vars}\nmodo = "preview";\n\n${design.scad_template}\n`;
+      console.log('--- SCAD PREVIEW ---');
+      console.log(scadContent);
+      console.log('--- FIM ---');
+      fs.writeFileSync(scadPath, scadContent);
+      // Para preview não injetamos modo — o template usa "preview" por defeito
     // MAS o template já não tem modo declarado, então temos de injetar
-    fs.writeFileSync(
-      scadPath,
-      `${vars}\nmodo = "preview";\n\n${design.scad_template}\n`
-    );
+   
 
     const p = spawn('openscad', ['-o', stlPath, scadPath]);
 
