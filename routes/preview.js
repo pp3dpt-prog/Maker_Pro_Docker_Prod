@@ -21,6 +21,8 @@ router.post('/', async (req, res) => {
   try {
     const { design_id, params } = req.body;
 
+    console.log('Preview params recebidos:', JSON.stringify(params));
+
     if (!design_id || !params) {
       return res.status(400).send('INVALID_REQUEST');
     }
