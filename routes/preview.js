@@ -52,7 +52,7 @@ router.post('/', async (req, res) => {
 
     fs.writeFileSync(
       scadPath,
-      `${vars}\n\n${design.scad_template}\n\ncorpo_caixa();\n`
+      `${vars}\n\n${design.scad_template}\n\n${design.scad_template}\n`
     );
 
     // ✅ OpenSCAD → STL (headless, estável)

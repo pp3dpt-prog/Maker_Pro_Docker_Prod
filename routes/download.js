@@ -111,35 +111,40 @@ export async function downloadStl(req, res) {
       return res.status(402).send('INSUFFICIENT_CREDITS');
     }
 
-    // ----------------------------
-    // Generate STL(s)
-    // ----------------------------
-    const jobId = uuid();
-    const base = path.join(TMP_DIR, jobId);
-    const files = [];
+ // ----------------------------
+// Generate STL(s)
+// ----------------------------
+const jobId = uuid();
+const base = path.join(TMP_DIR, jobId);
+const files = [];
 
-    // Caixa (sempre)
-    const caixaPath = `${base}_caixa.stl`;
-    await gerarSTL({
-      scadTemplate: design.scad_template,
-      params,
-      moduleCall: 'corpo_caixa();',
-      outFile: caixaPath,
-    });
-    files.push({ name: 'caixa.stl', path: caixaPath });
+// Normalizar tem_tampa para inteiro
+const paramsNormalizados = {
+  ...params,
+  tem_tampa: params.tem_tampa ? 1 : 0,
+};
 
-    // Tampa (opcional — boolean)
-    if (params.tem_tampa === true) {
-      const tampaPath = `${base}_tampa.stl`;
-      await gerarSTL({
-        scadTemplate: design.scad_template,
-        params,
-        moduleCall: 'tampa_caixa();',
-        outFile: tampaPath,
-      });
-      files.push({ name: 'tampa.stl', path: tampaPath });
-    }
+// Caixa (sempre)
+const caixaPath = `${base}_caixa.stl`;
+await gerarSTL({
+  scadTemplate: design.scad_template,
+  params: { ...paramsNormalizados, modo: '"corpo"' },
+  moduleCall: '',
+  outFile: caixaPath,
+});
+files.push({ name: 'caixa.stl', path: caixaPath });
 
+// Tampa (opcional)
+if (params.tem_tampa) {
+  const tampaPath = `${base}_tampa.stl`;
+  await gerarSTL({
+    scadTemplate: design.scad_template,
+    params: { ...paramsNormalizados, modo: '"tampa"' },
+    moduleCall: '',
+    outFile: tampaPath,
+  });
+  files.push({ name: 'tampa.stl', path: tampaPath });
+}
     // ----------------------------
     // Debit credits
     // ----------------------------
