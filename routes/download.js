@@ -26,7 +26,7 @@ async function getUser(req) {
   if (error || !data?.user) throw new Error('UNAUTHORIZED');
   return data.user;
 }
-console.log('Params para gerarSTL:', JSON.stringify({ ...paramsNormalizados, modo: 'corpo' }));
+
 async function gerarSTL({ scadTemplate, params, outFile }) {
   const scadFile = outFile.replace('.stl', '.scad');
 
@@ -134,7 +134,7 @@ export async function downloadStl(req, res) {
       ...params,
       tem_tampa: params.tem_tampa ? 1 : 0,
     };
-
+    console.log('Params para gerarSTL:', JSON.stringify({ ...paramsNormalizados, modo: 'corpo' }));
     // Caixa (sempre)
     const caixaPath = `${base}_caixa.stl`;
     await gerarSTL({
