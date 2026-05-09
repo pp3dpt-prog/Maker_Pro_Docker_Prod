@@ -26,7 +26,7 @@ async function getUser(req) {
   if (error || !data?.user) throw new Error('UNAUTHORIZED');
   return data.user;
 }
-
+console.log('Params para gerarSTL:', JSON.stringify({ ...paramsNormalizados, modo: 'corpo' }));
 async function gerarSTL({ scadTemplate, params, outFile }) {
   const scadFile = outFile.replace('.stl', '.scad');
 
@@ -35,6 +35,7 @@ async function gerarSTL({ scadTemplate, params, outFile }) {
     .join('\n');
 
   fs.writeFileSync(scadFile, `${vars}\n\n${scadTemplate}\n`);
+  console.log('Vars gerados:', vars);
 
   await new Promise((resolve, reject) => {
     const p = spawn(OPENSCAD_BIN, ['-o', outFile, scadFile]);
