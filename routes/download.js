@@ -254,7 +254,10 @@ export async function downloadStl(req, res) {
       res.on('finish', () => cleanupFiles(files));
       return;
     }
-
+    files.forEach(f => {
+      console.log('Ficheiro existe antes do ZIP:', f.path, fs.existsSync(f.path));
+      console.log('Tamanho:', fs.statSync(f.path).size, 'bytes');
+    });
     // ZIP — criar novo arquivo para enviar ao browser
     const archive = archiver('zip', { zlib: { level: 9 } });
     const zipStream = new PassThrough();
