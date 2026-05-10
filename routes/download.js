@@ -62,7 +62,6 @@ async function gerarSTL({ scadTemplate, params, outFile }) {
     });
   });
 
-  // Verificar se o STL foi criado
   if (!fs.existsSync(outFile)) {
     throw new Error(`STL não foi gerado: ${outFile}`);
   }
@@ -70,20 +69,30 @@ async function gerarSTL({ scadTemplate, params, outFile }) {
 
 async function uploadToStorage(filePath, storagePath, mimeType) {
   try {
+    console.log('A fazer upload para Storage:', storagePath, '— ficheiro existe:', fs.existsSync(filePath));
+    
     const buffer = fs.readFileSync(filePath);
+    console.log('Tamanho do buffer:', buffer.length, 'bytes');
+
     const { error } = await supabase.storage
       .from('user-stls')
       .upload(storagePath, buffer, { contentType: mimeType, upsert: true });
 
     if (error) {
-      console.error('Erro no upload Storage:', error);
+      console.error('Erro no upload Storage:', JSON.stringify(error));
       return null;
     }
 
-    const { data: signedData } = await supabase.storage
+    const { data: signedData, error: signedError } = await supabase.storage
       .from('user-stls')
       .createSignedUrl(storagePath, 60 * 60 * 24 * 365);
 
+    if (signedError) {
+      console.error('Erro ao criar URL assinado:', JSON.stringify(signedError));
+      return null;
+    }
+
+    console.log('✅ Upload OK — URL gerado:', signedData?.signedUrl ? 'sim' : 'não');
     return signedData?.signedUrl ?? null;
   } catch (err) {
     console.error('Erro uploadToStorage:', err);
@@ -94,8 +103,7 @@ async function uploadToStorage(filePath, storagePath, mimeType) {
 function cleanupFiles(files) {
   files.forEach(f => {
     fs.unlink(f.path, () => {});
-    const scad = f.path.replace('.stl', '.scad');
-    fs.unlink(scad, () => {});
+    fs.unlink(f.path.replace('.stl', '.scad'), () => {});
   });
 }
 
@@ -117,7 +125,7 @@ export async function downloadStl(req, res) {
     // Buscar design
     const { data: design, error: designError } = await supabase
       .from('prod_designs')
-      .select('scad_template, credit_cost, nome')
+      .select('scad_template, credit_cost, nome, familia')
       .eq('id', design_id)
       .single();
 
@@ -147,31 +155,44 @@ export async function downloadStl(req, res) {
 
     console.log('Params normalizados:', JSON.stringify(paramsNormalizados));
 
-    // Gerar STL(s)
+    // Gerar STL(s) conforme a família
     const jobId = uuid();
     const base = path.join(TMP_DIR, jobId);
     const files = [];
 
-    // Caixa (sempre)
-    const caixaPath = `${base}_caixa.stl`;
-    await gerarSTL({
-      scadTemplate: design.scad_template,
-      params: { ...paramsNormalizados, modo: 'corpo' },
-      outFile: caixaPath,
-    });
-    files.push({ name: 'caixa.stl', path: caixaPath });
-    console.log('✅ Caixa gerada:', fs.existsSync(caixaPath));
+    const isCaixa = design.familia === 'caixas';
 
-    // Tampa (opcional)
-    if (params.tem_tampa) {
-      const tampaPath = `${base}_tampa.stl`;
+    if (isCaixa) {
+      // Caixa — usa modo="corpo" e modo="tampa"
+      const caixaPath = `${base}_caixa.stl`;
       await gerarSTL({
         scadTemplate: design.scad_template,
-        params: { ...paramsNormalizados, modo: 'tampa' },
-        outFile: tampaPath,
+        params: { ...paramsNormalizados, modo: 'corpo' },
+        outFile: caixaPath,
       });
-      files.push({ name: 'tampa.stl', path: tampaPath });
-      console.log('✅ Tampa gerada:', fs.existsSync(tampaPath));
+      files.push({ name: 'caixa.stl', path: caixaPath });
+      console.log('✅ Caixa gerada:', fs.existsSync(caixaPath));
+
+      if (params.tem_tampa) {
+        const tampaPath = `${base}_tampa.stl`;
+        await gerarSTL({
+          scadTemplate: design.scad_template,
+          params: { ...paramsNormalizados, modo: 'tampa' },
+          outFile: tampaPath,
+        });
+        files.push({ name: 'tampa.stl', path: tampaPath });
+        console.log('✅ Tampa gerada:', fs.existsSync(tampaPath));
+      }
+    } else {
+      // Pet-tags e outros — gera diretamente sem modo
+      const stlPath = `${base}.stl`;
+      await gerarSTL({
+        scadTemplate: design.scad_template,
+        params: paramsNormalizados,
+        outFile: stlPath,
+      });
+      files.push({ name: `${design_id}.stl`, path: stlPath });
+      console.log('✅ STL gerado:', fs.existsSync(stlPath));
     }
 
     // Debitar créditos
@@ -203,80 +224,79 @@ export async function downloadStl(req, res) {
 
     if (isZip) {
       // Criar ZIP em disco para upload
-      const zipPath = `${base}.zip`;
+      const zipPath = `${base}_upload.zip`;
       await new Promise((resolve, reject) => {
         const output = fs.createWriteStream(zipPath);
-        const archive = archiver('zip', { zlib: { level: 9 } });
-        archive.pipe(output);
-        files.forEach(f => archive.file(f.path, { name: f.name }));
-        archive.finalize();
+        const arc = archiver('zip', { zlib: { level: 9 } });
+        arc.pipe(output);
+        files.forEach(f => arc.file(f.path, { name: f.name }));
+        arc.finalize();
         output.on('close', resolve);
-        archive.on('error', reject);
+        arc.on('error', reject);
       });
+      console.log('✅ ZIP para upload criado:', fs.existsSync(zipPath), fs.statSync(zipPath).size, 'bytes');
       fileUrl = await uploadToStorage(zipPath, storagePath, 'application/zip');
       fs.unlink(zipPath, () => {});
     } else {
       fileUrl = await uploadToStorage(files[0].path, storagePath, 'model/stl');
     }
 
+    console.log('fileUrl:', fileUrl ? 'gerado' : 'null');
+
     // Guardar em prod_user_assets
     if (fileUrl) {
-      await supabase.from('prod_user_assets').upsert(
-        {
-          user_id: user.id,
-          design_id: design_id,
-          stl_url: fileUrl,
-          scad_vault_path: storagePath,
-          last_rendered_at: new Date().toISOString(),
-          is_archived: false,
-        },
-        { onConflict: 'user_id,design_id' }
-    );
+      const { error: assetError } = await supabase
+        .from('prod_user_assets')
+        .upsert(
+          {
+            user_id: user.id,
+            design_id: design_id,
+            stl_url: fileUrl,
+            scad_vault_path: storagePath,
+            last_rendered_at: new Date().toISOString(),
+            is_archived: false,
+          },
+          { onConflict: 'user_id,design_id' }
+        );
 
-  if (assetError) {
-    console.error('Erro ao guardar asset:', assetError);
-  } else {
-    console.log('✅ Asset guardado com sucesso');
-  }
-}
+      if (assetError) {
+        console.error('Erro ao guardar asset:', JSON.stringify(assetError));
+      } else {
+        console.log('✅ Asset guardado com sucesso');
+      }
+    } else {
+      console.log('⚠️ fileUrl é null — asset não guardado');
+    }
 
     // Registar em prod_downloads_log
-    await supabase.from('prod_downloads_log').insert({
+    const { error: logError } = await supabase.from('prod_downloads_log').insert({
       email: user.email,
       file_url: fileUrl,
       shape_type: design_id,
       custom_name: design.nome,
     });
+    if (logError) console.error('Erro ao registar log:', JSON.stringify(logError));
 
-    // ── Enviar resposta ao browser ──
+    // Enviar ao browser
     if (!isZip) {
       res.setHeader('Content-Type', 'application/octet-stream');
       res.setHeader('Content-Disposition', `attachment; filename="${files[0].name}"`);
-
       const stream = fs.createReadStream(files[0].path);
       stream.pipe(res);
-
-      // Limpar só depois de enviar
       res.on('finish', () => cleanupFiles(files));
       return;
     }
-    files.forEach(f => {
-      console.log('Ficheiro existe antes do ZIP:', f.path, fs.existsSync(f.path));
-      console.log('Tamanho:', fs.statSync(f.path).size, 'bytes');
-    });
-    // ZIP — criar novo arquivo para enviar ao browser
-    const archive = archiver('zip', { zlib: { level: 9 } });
-    const zipStream = new PassThrough();
 
-    archive.pipe(zipStream);
-    files.forEach(f => archive.file(f.path, { name: f.name }));
-    archive.finalize();
+    // ZIP para o browser
+    const archiveBrowser = archiver('zip', { zlib: { level: 9 } });
+    const zipStream = new PassThrough();
+    archiveBrowser.pipe(zipStream);
+    files.forEach(f => archiveBrowser.file(f.path, { name: f.name }));
+    archiveBrowser.finalize();
 
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="${design_id}.zip"`);
     zipStream.pipe(res);
-
-    // Limpar só depois de enviar
     res.on('finish', () => cleanupFiles(files));
 
   } catch (err) {
