@@ -231,12 +231,14 @@ export async function downloadStl(req, res) {
           is_archived: false,
         },
         { onConflict: 'user_id,design_id' }
-      );
-      console.log('Asset upsert result:', JSON.stringify(assetData));
-      console.log('Asset upsert error:', JSON.stringify(assetError));
-      console.log('fileUrl gerado:', fileUrl);
-      console.log('storagePath:', storagePath);
-    }
+    );
+
+  if (assetError) {
+    console.error('Erro ao guardar asset:', assetError);
+  } else {
+    console.log('✅ Asset guardado com sucesso');
+  }
+}
 
     // Registar em prod_downloads_log
     await supabase.from('prod_downloads_log').insert({
