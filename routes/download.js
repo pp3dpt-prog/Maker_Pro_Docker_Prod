@@ -35,7 +35,6 @@ async function gerarSTL({ scadTemplate, params, outFile }) {
     .join('\n');
 
   fs.writeFileSync(scadFile, `${vars}\n\n${scadTemplate}\n`);
-  console.log('Vars gerados:', vars);
 
   await new Promise((resolve, reject) => {
     const p = spawn(OPENSCAD_BIN, ['-o', outFile, scadFile]);
@@ -45,13 +44,13 @@ async function gerarSTL({ scadTemplate, params, outFile }) {
 
     const timeout = setTimeout(() => {
       p.kill();
-      reject(new Error('OpenSCAD timeout após 30s'));
-    }, 30000);
+      reject(new Error('OpenSCAD timeout após 60s'));
+    }, 60000);
 
     p.on('close', code => {
       clearTimeout(timeout);
+      if (stderrOutput) console.log('OpenSCAD stderr:', stderrOutput);
       if (code !== 0) {
-        console.error('OpenSCAD stderr:', stderrOutput);
         return reject(new Error(`OpenSCAD failed com código ${code}`));
       }
       resolve();
@@ -62,6 +61,11 @@ async function gerarSTL({ scadTemplate, params, outFile }) {
       reject(err);
     });
   });
+
+  // Verificar se o STL foi criado
+  if (!fs.existsSync(outFile)) {
+    throw new Error(`STL não foi gerado: ${outFile}`);
+  }
 }
 
 async function uploadToStorage(filePath, storagePath, mimeType) {
@@ -76,7 +80,6 @@ async function uploadToStorage(filePath, storagePath, mimeType) {
       return null;
     }
 
-    // URL assinado válido por 1 ano
     const { data: signedData } = await supabase.storage
       .from('user-stls')
       .createSignedUrl(storagePath, 60 * 60 * 24 * 365);
@@ -88,6 +91,14 @@ async function uploadToStorage(filePath, storagePath, mimeType) {
   }
 }
 
+function cleanupFiles(files) {
+  files.forEach(f => {
+    fs.unlink(f.path, () => {});
+    const scad = f.path.replace('.stl', '.scad');
+    fs.unlink(scad, () => {});
+  });
+}
+
 export async function downloadStl(req, res) {
   try {
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -96,6 +107,8 @@ export async function downloadStl(req, res) {
 
     const user = await getUser(req);
     const { design_id, params } = req.body;
+
+    console.log('Download request — design_id:', design_id, 'params:', JSON.stringify(params));
 
     if (!design_id || !params) {
       return res.status(400).send('INVALID_REQUEST');
@@ -109,6 +122,7 @@ export async function downloadStl(req, res) {
       .single();
 
     if (designError || !design) {
+      console.error('Design não encontrado:', designError);
       return res.status(404).send('DESIGN_NOT_FOUND');
     }
 
@@ -125,16 +139,19 @@ export async function downloadStl(req, res) {
       return res.status(402).send('INSUFFICIENT_CREDITS');
     }
 
+    // Normalizar params
+    const paramsNormalizados = {
+      ...params,
+      tem_tampa: params.tem_tampa ? 1 : 0,
+    };
+
+    console.log('Params normalizados:', JSON.stringify(paramsNormalizados));
+
     // Gerar STL(s)
     const jobId = uuid();
     const base = path.join(TMP_DIR, jobId);
     const files = [];
 
-    const paramsNormalizados = {
-      ...params,
-      tem_tampa: params.tem_tampa ? 1 : 0,
-    };
-    console.log('Params para gerarSTL:', JSON.stringify({ ...paramsNormalizados, modo: 'corpo' }));
     // Caixa (sempre)
     const caixaPath = `${base}_caixa.stl`;
     await gerarSTL({
@@ -143,6 +160,7 @@ export async function downloadStl(req, res) {
       outFile: caixaPath,
     });
     files.push({ name: 'caixa.stl', path: caixaPath });
+    console.log('✅ Caixa gerada:', fs.existsSync(caixaPath));
 
     // Tampa (opcional)
     if (params.tem_tampa) {
@@ -153,6 +171,7 @@ export async function downloadStl(req, res) {
         outFile: tampaPath,
       });
       files.push({ name: 'tampa.stl', path: tampaPath });
+      console.log('✅ Tampa gerada:', fs.existsSync(tampaPath));
     }
 
     // Debitar créditos
@@ -172,7 +191,7 @@ export async function downloadStl(req, res) {
     // Incrementar total_downloads
     await supabase.rpc('increment_downloads', { design_id });
 
-    // ── Upload para Storage ──
+    // Upload para Storage
     const isZip = files.length > 1;
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const fileName = isZip
@@ -207,6 +226,7 @@ export async function downloadStl(req, res) {
           user_id: user.id,
           design_id: design_id,
           stl_url: fileUrl,
+          scad_vault_path: storagePath,
           last_rendered_at: new Date().toISOString(),
           is_archived: false,
         },
@@ -222,22 +242,23 @@ export async function downloadStl(req, res) {
       custom_name: design.nome,
     });
 
-    // Limpar temporários
-    files.forEach(f => {
-      fs.unlink(f.path, () => {});
-      fs.unlink(f.path.replace('.stl', '.scad'), () => {});
-    });
-
     // ── Enviar resposta ao browser ──
     if (!isZip) {
       res.setHeader('Content-Type', 'application/octet-stream');
       res.setHeader('Content-Disposition', `attachment; filename="${files[0].name}"`);
-      return fs.createReadStream(files[0].path).pipe(res);
+
+      const stream = fs.createReadStream(files[0].path);
+      stream.pipe(res);
+
+      // Limpar só depois de enviar
+      res.on('finish', () => cleanupFiles(files));
+      return;
     }
 
-    // ZIP via stream
+    // ZIP — criar novo arquivo para enviar ao browser
     const archive = archiver('zip', { zlib: { level: 9 } });
     const zipStream = new PassThrough();
+
     archive.pipe(zipStream);
     files.forEach(f => archive.file(f.path, { name: f.name }));
     archive.finalize();
@@ -245,6 +266,9 @@ export async function downloadStl(req, res) {
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="${design_id}.zip"`);
     zipStream.pipe(res);
+
+    // Limpar só depois de enviar
+    res.on('finish', () => cleanupFiles(files));
 
   } catch (err) {
     console.error('DOWNLOAD_FAILED', err);
