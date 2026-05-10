@@ -69,8 +69,7 @@ async function gerarSTL({ scadTemplate, params, outFile }) {
 
 async function uploadToStorage(filePath, storagePath, mimeType) {
   try {
-    console.log('A fazer upload para Storage:', storagePath, '— ficheiro existe:', fs.existsSync(filePath));
-    
+    console.log('A fazer upload para Storage:', storagePath);
     const buffer = fs.readFileSync(filePath);
     console.log('Tamanho do buffer:', buffer.length, 'bytes');
 
@@ -92,7 +91,7 @@ async function uploadToStorage(filePath, storagePath, mimeType) {
       return null;
     }
 
-    console.log('✅ Upload OK — URL gerado:', signedData?.signedUrl ? 'sim' : 'não');
+    console.log('✅ Upload OK');
     return signedData?.signedUrl ?? null;
   } catch (err) {
     console.error('Erro uploadToStorage:', err);
@@ -153,8 +152,6 @@ export async function downloadStl(req, res) {
       tem_tampa: params.tem_tampa ? 1 : 0,
     };
 
-    console.log('Params normalizados:', JSON.stringify(paramsNormalizados));
-
     // Gerar STL(s) conforme a família
     const jobId = uuid();
     const base = path.join(TMP_DIR, jobId);
@@ -209,12 +206,27 @@ export async function downloadStl(req, res) {
       });
     }
 
-    // Incrementar total_downloads
-    await supabase.rpc('increment_downloads', { design_id });
+    // Incrementar total_downloads no design
+    const { error: rpcError } = await supabase.rpc('increment_downloads', { design_id });
+    if (rpcError) {
+      console.error('Erro ao incrementar downloads:', JSON.stringify(rpcError));
+    } else {
+      console.log('✅ total_downloads incrementado');
+    }
+
+    // Contar downloads anteriores para nome único
+    const { count: downloadCount } = await supabase
+      .from('prod_user_assets')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .eq('design_id', design_id);
+
+    const numeroDownload = (downloadCount ?? 0) + 1;
+    const nomeUnico = `${design.nome} — Download #${numeroDownload}`;
 
     // Upload para Storage
     const isZip = files.length > 1;
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const timestamp = `${Date.now()}`; // milissegundos — sempre único
     const fileName = isZip
       ? `${design_id}_${timestamp}.zip`
       : `${design_id}_${timestamp}.stl`;
@@ -243,28 +255,23 @@ export async function downloadStl(req, res) {
 
     console.log('fileUrl:', fileUrl ? 'gerado' : 'null');
 
-    // Guardar em prod_user_assets
-    if (fileUrl) {
-      // ✅ insert — guarda todos
+    // Guardar em prod_user_assets com nome único
     const { error: assetError } = await supabase
-    .from('prod_user_assets')
-    .insert({
-      user_id: user.id,
-      design_id: design_id,
-      stl_url: fileUrl,
-      scad_vault_path: storagePath,
-      nome_personalizado: `${design.nome} — ${new Date().toLocaleDateString('pt-PT')}`,
-      last_rendered_at: new Date().toISOString(),
-      is_archived: false,
-    });
+      .from('prod_user_assets')
+      .insert({
+        user_id: user.id,
+        design_id: design_id,
+        nome_personalizado: nomeUnico,
+        stl_url: fileUrl,
+        scad_vault_path: storagePath,
+        last_rendered_at: new Date().toISOString(),
+        is_archived: false,
+      });
 
-      if (assetError) {
-        console.error('Erro ao guardar asset:', JSON.stringify(assetError));
-      } else {
-        console.log('✅ Asset guardado com sucesso');
-      }
+    if (assetError) {
+      console.error('Erro ao guardar asset:', JSON.stringify(assetError));
     } else {
-      console.log('⚠️ fileUrl é null — asset não guardado');
+      console.log('✅ Asset guardado:', nomeUnico);
     }
 
     // Registar em prod_downloads_log
@@ -272,11 +279,11 @@ export async function downloadStl(req, res) {
       email: user.email,
       file_url: fileUrl,
       shape_type: design_id,
-      custom_name: design.nome,
+      custom_name: nomeUnico,
     });
     if (logError) console.error('Erro ao registar log:', JSON.stringify(logError));
 
-    // Enviar ao browser
+    // ── Enviar ao browser ──
     if (!isZip) {
       res.setHeader('Content-Type', 'application/octet-stream');
       res.setHeader('Content-Disposition', `attachment; filename="${files[0].name}"`);
