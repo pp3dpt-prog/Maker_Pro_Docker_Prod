@@ -232,6 +232,10 @@ export async function downloadStl(req, res) {
         },
         { onConflict: 'user_id,design_id' }
       );
+      console.log('Asset upsert result:', JSON.stringify(assetData));
+      console.log('Asset upsert error:', JSON.stringify(assetError));
+      console.log('fileUrl gerado:', fileUrl);
+      console.log('storagePath:', storagePath);
     }
 
     // Registar em prod_downloads_log
