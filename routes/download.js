@@ -245,19 +245,18 @@ export async function downloadStl(req, res) {
 
     // Guardar em prod_user_assets
     if (fileUrl) {
-      const { error: assetError } = await supabase
-        .from('prod_user_assets')
-        .upsert(
-          {
-            user_id: user.id,
-            design_id: design_id,
-            stl_url: fileUrl,
-            scad_vault_path: storagePath,
-            last_rendered_at: new Date().toISOString(),
-            is_archived: false,
-          },
-          { onConflict: 'user_id,design_id' }
-        );
+      // ✅ insert — guarda todos
+    const { error: assetError } = await supabase
+    .from('prod_user_assets')
+    .insert({
+      user_id: user.id,
+      design_id: design_id,
+      stl_url: fileUrl,
+      scad_vault_path: storagePath,
+      nome_personalizado: `${design.nome} — ${new Date().toLocaleDateString('pt-PT')}`,
+      last_rendered_at: new Date().toISOString(),
+      is_archived: false,
+    });
 
       if (assetError) {
         console.error('Erro ao guardar asset:', JSON.stringify(assetError));
