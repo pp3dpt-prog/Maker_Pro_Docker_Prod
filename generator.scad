@@ -1,8 +1,9 @@
 // --- 1. VARIÁVEIS INJETADAS PELO BACKEND ---
-nome_pet = is_undef(nome_pet) ? "NOME" : nome_pet;
-telefone = is_undef(telefone) ? "000000000" : telefone;
-fonte = is_undef(fonte) ? "Open Sans" : fonte;
-forma = is_undef(forma) ? "coracao" : forma;
+nome_pet = "NOME";      
+telefone = "000000000"; 
+fonte = "Open Sans";    
+forma = "coracao";      
+
 
 fontSize  = is_undef(fontSize)  ? 7   : fontSize;
 xPos      = is_undef(xPos)      ? 0   : xPos;
@@ -11,7 +12,6 @@ yPos      = is_undef(yPos)      ? 0   : yPos;
 fontSizeN = is_undef(fontSizeN) ? 6.5 : fontSizeN;
 xPosN     = is_undef(xPosN)     ? 0   : xPosN;
 yPosN     = is_undef(yPosN)     ? 0   : yPosN;
-
 
 z_superficie = 3.0; 
 
@@ -38,6 +38,7 @@ difference() {
     else redondo_base_cubo();
 
     // Texto do Verso (Telefone)
+    $fn = 24;
     translate([-xPosN, yPosN, -0.1]) 
     rotate([0, 180, 0])
     linear_extrude(height = 1.1) 
@@ -45,6 +46,8 @@ difference() {
 }
 
 // Nome em Relevo na frente
+
+$fn = 24;
 translate([xPos, yPos, z_superficie]) 
 linear_extrude(height = 1) 
 text(nome_pet, size = fontSize, font = fonte, halign = "center", valign = "center");
