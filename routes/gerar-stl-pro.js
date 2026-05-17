@@ -28,8 +28,9 @@ const __dirname  = dirname(__filename);
 const OPENSCAD_BIN        = process.env.OPENSCAD_BIN || 'openscad';
 const OPENSCAD_TIMEOUT_MS = Number(process.env.OPENSCAD_TIMEOUT_MS || '120000');
 const SIGNED_URL_TTL      = Number(process.env.SIGNED_URL_TTL_SECONDS || '3600');
-const STL_BUCKET          = process.env.STL_BUCKET  || 'designs-vault';
-const IMG_BUCKET          = process.env.IMG_BUCKET  || 'designs-vault';
+const BUCKET              = process.env.STORAGE_BUCKET || 'makers_pro_stl_prod';
+const STL_FOLDER          = 'users';
+const IMG_FOLDER          = 'Images';
 const DESIGNS_TABLE       = process.env.DESIGNS_TABLE || 'prod_designs';
 const MAX_PARAM_LEN       = 64;
 const MAX_PATH_LEN        = 500;
@@ -328,7 +329,7 @@ export async function gerarStlPro(req, res) {
       const procPath = path.join(TMP_DIR, `img_proc_${uid}.png`);
       tempFiles.push(rawPath, procPath);
 
-      await downloadFromStorage(IMG_BUCKET, params.image_path, rawPath);
+      await downloadFromStorage(BUCKET, params.image_path, rawPath);
 
       let imgInfo;
       if (isHueforge) {
@@ -360,23 +361,23 @@ export async function gerarStlPro(req, res) {
     const templateHash = sha256(scadContent);
     const paramsHash   = sha256(`${produtoId}|${templateHash}|${stableJson(hashParams)}|${renderMode}`);
     const stlFilename  = `${produtoId}_${paramsHash}.stl`;
-    const folder       = `${user.id}/${renderMode}`;
+    const folder       = `${STL_FOLDER}/${user.id}/${renderMode}`;
     const stlStorage   = `${folder}/${stlFilename}`;
 
     // ── 7. Cache hit? ────────────────────────────────────────────────────
-    const cached = await fileExists(STL_BUCKET, folder, stlFilename);
+    const cached = await fileExists(BUCKET, folder, stlFilename);
     if (cached) {
       const { data: urlData } = await supabase.storage
-        .from(STL_BUCKET)
+        .from(BUCKET)
         .createSignedUrl(stlStorage, SIGNED_URL_TTL);
 
       const response = { success: true, url: urlData?.signedUrl, cached: true, mode: renderMode };
 
       if (isHueforge) {
         const txtFilename = `${produtoId}_${paramsHash}.txt`;
-        if (await fileExists(STL_BUCKET, folder, txtFilename)) {
+        if (await fileExists(BUCKET, folder, txtFilename)) {
           const { data: td } = await supabase.storage
-            .from(STL_BUCKET)
+            .from(BUCKET)
             .createSignedUrl(`${folder}/${txtFilename}`, SIGNED_URL_TTL);
           response.txtUrl = td?.signedUrl;
         }
@@ -411,7 +412,7 @@ export async function gerarStlPro(req, res) {
 
     // ── 9. Upload STL ────────────────────────────────────────────────────
     const stlBuffer = await fsp.readFile(stlPath);
-    const stlUrl    = await uploadFile(STL_BUCKET, stlStorage, stlBuffer, 'model/stl');
+    const stlUrl    = await uploadFile(BUCKET, stlStorage, stlBuffer, 'model/stl');
 
     if (!stlUrl) {
       return res.status(500).json({ error: 'Erro no upload do STL.' });
@@ -432,7 +433,7 @@ export async function gerarStlPro(req, res) {
 
       const txtFilename = `${produtoId}_${paramsHash}.txt`;
       const txtStorage  = `${folder}/${txtFilename}`;
-      const txtUrl      = await uploadFile(STL_BUCKET, txtStorage,
+      const txtUrl      = await uploadFile(BUCKET, txtStorage,
                                            Buffer.from(txtContent, 'utf8'), 'text/plain');
       if (txtUrl) response.txtUrl = txtUrl;
     }
