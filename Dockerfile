@@ -4,6 +4,7 @@ FROM node:20-bullseye-slim
 RUN apt-get update && apt-get install -y \
     openscad \
     fontconfig \
+    imagemagick \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

@@ -4,6 +4,7 @@ import cors from 'cors';
 
 import { downloadStl } from './routes/download.js';
 import previewRouter from './routes/preview.js';
+import gerarStlProRouter from './routes/gerar-stl-pro.js';
 
 const app = express();
 
@@ -22,6 +23,9 @@ app.post('/download-stl', downloadStl);
 
 // Preview (PNG) — sem créditos
 app.use('/api/preview', previewRouter);
+
+// Geração STL para produtos SCAD (novos produtos com image_upload, etc.)
+app.use('/gerar-stl-pro', gerarStlProRouter);
 
 // ============================
 // Health check (Render)
