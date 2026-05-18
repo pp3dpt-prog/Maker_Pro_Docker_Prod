@@ -169,11 +169,11 @@ export async function downloadStl(req, res) {
       if (imgErr || !imgData) throw new Error(`Erro ao descarregar imagem: ${imgErr?.message}`);
       await fsp.writeFile(rawPath, Buffer.from(await imgData.arrayBuffer()));
 
-      // Para download final usa qualidade máxima (200px)
+      // 100px: bom equilíbrio entre qualidade e velocidade para OpenSCAD surface()
       const isHueforge = String(design.familia || '').toLowerCase() === 'hueforge';
       const img = await Jimp.read(rawPath);
-      if (img.getWidth() > 200 || img.getHeight() > 200) {
-        img.getWidth() >= img.getHeight() ? img.resize(200, Jimp.AUTO) : img.resize(Jimp.AUTO, 200);
+      if (img.getWidth() > 100 || img.getHeight() > 100) {
+        img.getWidth() >= img.getHeight() ? img.resize(100, Jimp.AUTO) : img.resize(Jimp.AUTO, 100);
       }
       img.grayscale();
       if (isHueforge) {
