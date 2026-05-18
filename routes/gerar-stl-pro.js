@@ -331,10 +331,13 @@ export async function gerarStlPro(req, res) {
 
       await downloadFromStorage(BUCKET, params.image_path, rawPath);
 
+      // Preview usa imagem menor para OpenSCAD surface() ser mais rápido
+      const maxPxHueforge = renderMode === 'preview' ? 60 : 200;
+
       let imgInfo;
       if (isHueforge) {
         const numCores = Number(params.num_cores ?? 4);
-        await prepareImage(rawPath, rawPath, 200);   // pré-reduz
+        await prepareImage(rawPath, rawPath, maxPxHueforge);
         imgInfo = await quantizeImage(rawPath, procPath, numCores);
       } else {
         imgInfo = await prepareImage(rawPath, procPath, 150);
