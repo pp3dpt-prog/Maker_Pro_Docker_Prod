@@ -1,10 +1,12 @@
 import fs from 'fs';
+import fsp from 'fs/promises';
 import path from 'path';
 import { spawn } from 'child_process';
 import archiver from 'archiver';
 import { v4 as uuid } from 'uuid';
 import { createClient } from '@supabase/supabase-js';
 import { PassThrough } from 'stream';
+import Jimp from 'jimp';
 
 const OPENSCAD_BIN = 'openscad';
 const TMP_DIR = path.join(process.cwd(), 'tmp');
@@ -152,6 +154,45 @@ export async function downloadStl(req, res) {
       tem_tampa: params.tem_tampa ? 1 : 0,
     };
 
+    // Processar imagem se existir (HueForge e portachaves com imagem)
+    const tempImageFiles = [];
+    if (typeof paramsNormalizados.image_path === 'string' && paramsNormalizados.image_path.startsWith('uploads/')) {
+      const imgUid = uuid();
+      const rawPath  = path.join(TMP_DIR, `img_raw_${imgUid}.png`);
+      const procPath = path.join(TMP_DIR, `img_proc_${imgUid}.png`);
+      tempImageFiles.push(rawPath, procPath);
+
+      // Descarregar do Supabase Storage
+      const { data: imgData, error: imgErr } = await supabase.storage
+        .from('makers_pro_stl_prod')
+        .download(paramsNormalizados.image_path);
+      if (imgErr || !imgData) throw new Error(`Erro ao descarregar imagem: ${imgErr?.message}`);
+      await fsp.writeFile(rawPath, Buffer.from(await imgData.arrayBuffer()));
+
+      // Para download final usa qualidade máxima (200px)
+      const isHueforge = String(design.familia || '').toLowerCase() === 'hueforge';
+      const img = await Jimp.read(rawPath);
+      if (img.getWidth() > 200 || img.getHeight() > 200) {
+        img.getWidth() >= img.getHeight() ? img.resize(200, Jimp.AUTO) : img.resize(Jimp.AUTO, 200);
+      }
+      img.grayscale();
+      if (isHueforge) {
+        const numCores = Math.max(2, Math.min(6, Number(paramsNormalizados.num_cores ?? 4)));
+        const n = numCores;
+        img.scan(0, 0, img.getWidth(), img.getHeight(), function (x, y, idx) {
+          const gray     = this.bitmap.data[idx];
+          const level    = Math.min(Math.floor(gray / 256 * n), n - 1);
+          const q        = n === 1 ? 0 : Math.round(level / (n - 1) * 255);
+          this.bitmap.data[idx] = this.bitmap.data[idx+1] = this.bitmap.data[idx+2] = q;
+        });
+      }
+      await img.writeAsync(procPath);
+
+      paramsNormalizados.image_path = procPath;
+      paramsNormalizados.image_w    = img.getWidth();
+      paramsNormalizados.image_h    = img.getHeight();
+    }
+
     // Gerar STL(s) conforme a família
     const jobId = uuid();
     const base = path.join(TMP_DIR, jobId);
@@ -289,7 +330,7 @@ export async function downloadStl(req, res) {
       res.setHeader('Content-Disposition', `attachment; filename="${files[0].name}"`);
       const stream = fs.createReadStream(files[0].path);
       stream.pipe(res);
-      res.on('finish', () => cleanupFiles(files));
+      res.on('finish', () => { cleanupFiles(files); tempImageFiles.forEach(f => fsp.unlink(f).catch(() => {})); });
       return;
     }
 
@@ -303,7 +344,7 @@ export async function downloadStl(req, res) {
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="${design_id}.zip"`);
     zipStream.pipe(res);
-    res.on('finish', () => cleanupFiles(files));
+    res.on('finish', () => { cleanupFiles(files); tempImageFiles.forEach(f => fsp.unlink(f).catch(() => {})); });
 
   } catch (err) {
     console.error('DOWNLOAD_FAILED', err);
