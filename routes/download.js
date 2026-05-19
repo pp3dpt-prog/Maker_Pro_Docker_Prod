@@ -128,7 +128,7 @@ export async function downloadStl(req, res) {
     // Buscar design
     const { data: design, error: designError } = await supabase
       .from('prod_designs')
-      .select('scad_template, credit_cost, nome, familia')
+      .select('scad_template, nome, familia, acesso_maker, requer_licenca_comercial')
       .eq('id', design_id)
       .single();
 
@@ -137,17 +137,18 @@ export async function downloadStl(req, res) {
       return res.status(404).send('DESIGN_NOT_FOUND');
     }
 
-    const cost = design.credit_cost ?? 0;
-
-    // Verificar créditos
+    // Verificar plano e limite de downloads
     const { data: perfil } = await supabase
       .from('prod_perfis')
-      .select('creditos_disponiveis')
+      .select('plano, downloads_mes, downloads_limite')
       .eq('id', user.id)
       .single();
 
-    if (!perfil || perfil.creditos_disponiveis < cost) {
-      return res.status(402).send('INSUFFICIENT_CREDITS');
+    if (!perfil) return res.status(402).send('PROFILE_NOT_FOUND');
+
+    // Verificar se atingiu o limite mensal
+    if (perfil.downloads_mes >= perfil.downloads_limite) {
+      return res.status(402).send('DOWNLOAD_LIMIT_REACHED');
     }
 
     // Normalizar params
@@ -297,19 +298,11 @@ export async function downloadStl(req, res) {
       console.log('✅ STL gerado:', fs.existsSync(stlPath));
     }
 
-    // Debitar créditos
-    if (cost > 0) {
-      await supabase
-        .from('prod_perfis')
-        .update({ creditos_disponiveis: perfil.creditos_disponiveis - cost })
-        .eq('id', user.id);
-
-      await supabase.from('prod_transacoes').insert({
-        user_id: user.id,
-        descricao: `Download STL: ${design.nome}`,
-        creditos_alterados: -cost,
-      });
-    }
+    // Incrementar contador de downloads do utilizador
+    await supabase
+      .from('prod_perfis')
+      .update({ downloads_mes: perfil.downloads_mes + 1 })
+      .eq('id', user.id);
 
     // Incrementar total_downloads no design
     const { error: rpcError } = await supabase.rpc('increment_downloads', { design_id });
