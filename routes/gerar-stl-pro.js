@@ -214,43 +214,47 @@ export function buildHueforgeTxt({ numCores, layerHeight, espessuraBase, alturaR
   const layersBase    = Math.ceil(espessuraBase / lh);
   const layersPerClr  = Math.max(1, Math.ceil((alturaRelevo / numCores) / lh));
   const totalLayers   = layersBase + (numCores - 1) * layersPerClr;
+  const sep           = '='.repeat(49);
 
   const L = [
-    '=== HueForge — Guia de Mudança de Filamento ===',
+    sep,
+    '  HUEFORGE - Guia de Mudanca de Filamento',
+    sep,
     '',
-    `Dimensões      : ${larguraMm} mm × ${alturaMm} mm`,
-    `Altura de camada: ${lh} mm`,
-    `Número de cores : ${numCores}`,
-    `Espessura base  : ${espessuraBase} mm`,
-    `Altura do relevo: ${alturaRelevo} mm`,
-    `Total de camadas: ~${totalLayers}`,
+    `  Dimensoes       : ${larguraMm} mm x ${alturaMm} mm`,
+    `  Altura de camada: ${lh} mm`,
+    `  Numero de cores : ${numCores}`,
+    `  Espessura base  : ${espessuraBase} mm`,
+    `  Altura do relevo: ${alturaRelevo} mm`,
+    `  Total de camadas: ~${totalLayers}`,
     '',
-    '─────────────────────────────────────────────────',
+    sep,
     '',
-    'COR 1  (mais escura — carrega antes de iniciar)',
-    `  → Camadas 1 até ${layersBase + layersPerClr - 1}`,
+    `  COR 1  (mais escura - carrega antes de iniciar)`,
+    `    -> Camadas 1 ate ${layersBase + layersPerClr - 1}`,
     '',
   ];
 
   for (let i = 2; i <= numCores; i++) {
     const changeAt = layersBase + (i - 2) * layersPerClr + layersPerClr;
     const heightMm = (changeAt * lh).toFixed(2);
-    L.push(`COR ${i}`);
-    L.push(`  → Para na camada ${changeAt}  (altura ≈ ${heightMm} mm)`);
-    L.push(`  → Troca o filamento e retoma`);
-    if (i < numCores) L.push(`  → Dura até à camada ${changeAt + layersPerClr - 1}`);
-    else              L.push('  → Última cor (zonas mais claras)');
+    L.push(`  COR ${i}${i === numCores ? '  (mais clara)' : ''}`);
+    L.push(`    -> Para na camada ${changeAt}  (altura ~ ${heightMm} mm)`);
+    L.push(`    -> Troca o filamento e retoma`);
+    if (i < numCores) L.push(`    -> Dura ate a camada ${changeAt + layersPerClr - 1}`);
     L.push('');
   }
 
-  L.push('─────────────────────────────────────────────────');
+  L.push(sep);
   L.push('');
-  L.push('DICAS:');
-  L.push('  • Usa "Pause at Layer" (Bambu Studio / Orca / PrusaSlicer) ou M600.');
-  L.push('  • Cor 1 = mais escura, Cor N = mais clara.');
-  L.push('  • As camadas podem variar ±1-2 conforme o slicer.');
+  L.push('  DICAS:');
+  L.push('  * Usa "Pause at Layer" no Bambu Studio / Orca / PrusaSlicer, ou M600.');
+  L.push('  * Cor 1 = mais escura  |  Cor N = mais clara.');
+  L.push('  * As camadas podem variar +/-1-2 conforme o slicer.');
+  L.push('');
+  L.push(sep);
 
-  return L.join('\n');
+  return L.join('\r\n');
 }
 
 /** Upload para Supabase Storage. Devolve URL assinada ou null. */

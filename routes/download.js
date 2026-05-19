@@ -8,6 +8,7 @@ import { createClient } from '@supabase/supabase-js';
 import { PassThrough } from 'stream';
 import Jimp from 'jimp';
 import { generateHueforgeStl } from '../app/hueforge-stl.js';
+import { buildHueforgeTxt }   from './gerar-stl-pro.js';
 
 const OPENSCAD_BIN = 'openscad';
 const TMP_DIR = path.join(process.cwd(), 'tmp');
@@ -222,6 +223,19 @@ export async function downloadStl(req, res) {
       const stlPath = `${base}.stl`;
       await fsp.writeFile(stlPath, stlBuffer);
       files.push({ name: `${design_id}.stl`, path: stlPath });
+
+      // Gerar TXT e incluir no ZIP
+      const txtContent = buildHueforgeTxt({
+        numCores    : Number(paramsNormalizados.num_cores      ?? 4),
+        layerHeight : Number(paramsNormalizados.layer_height   ?? 0.16),
+        espessuraBase: Number(paramsNormalizados.espessura_base ?? 1.0),
+        alturaRelevo : Number(paramsNormalizados.altura_relevo  ?? 2.0),
+        larguraMm   : Number(paramsNormalizados.largura_mm     ?? 100),
+        alturaMm    : Number(paramsNormalizados.altura_mm      ?? 100),
+      });
+      const txtPath = `${base}_hueforge.txt`;
+      await fsp.writeFile(txtPath, txtContent, 'ascii');
+      files.push({ name: 'hueforge_cores.txt', path: txtPath });
     } else if (isCaixa) {
       // Caixa — usa modo="corpo" e modo="tampa"
       const caixaPath = `${base}_caixa.stl`;
@@ -352,7 +366,7 @@ export async function downloadStl(req, res) {
       res.setHeader('Content-Disposition', `attachment; filename="${files[0].name}"`);
       const stream = fs.createReadStream(files[0].path);
       stream.pipe(res);
-      res.on('finish', () => { cleanupFiles(files); tempImageFiles.forEach(f => fsp.unlink(f).catch(() => {})); });
+      res.on('finish', () => { cleanupFiles(files); tempImageFiles.forEach(f => fsp.unlink(f).catch(() => {})); const txtTmp = `${base}_hueforge.txt`; fsp.unlink(txtTmp).catch(() => {}); });
       return;
     }
 
@@ -366,7 +380,7 @@ export async function downloadStl(req, res) {
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="${design_id}.zip"`);
     zipStream.pipe(res);
-    res.on('finish', () => { cleanupFiles(files); tempImageFiles.forEach(f => fsp.unlink(f).catch(() => {})); });
+    res.on('finish', () => { cleanupFiles(files); tempImageFiles.forEach(f => fsp.unlink(f).catch(() => {})); const txtTmp = `${base}_hueforge.txt`; fsp.unlink(txtTmp).catch(() => {}); });
 
   } catch (err) {
     console.error('DOWNLOAD_FAILED', err);
