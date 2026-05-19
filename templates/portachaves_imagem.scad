@@ -1,14 +1,5 @@
 // ── PORTACHAVES COM IMAGEM PERSONALIZADA ──
-// Parâmetros injetados pelo backend
-image_path    = is_undef(image_path)    ? ""   : image_path;
-image_w       = is_undef(image_w)       ? 100  : image_w;
-image_h       = is_undef(image_h)       ? 100  : image_h;
-largura       = is_undef(largura)       ? 55   : largura;
-altura        = is_undef(altura)        ? 35   : altura;
-espessura     = is_undef(espessura)     ? 3.5  : espessura;
-relevo        = is_undef(relevo)        ? 1.5  : relevo;
-// forma: 0=retangular, 1=oval (simplificado via hull)
-forma         = is_undef(forma)         ? 0    : forma;
+// Todas as variáveis são injetadas pelo backend — não redefinir aqui
 
 r_canto  = 5;
 r_furo   = 2.5;

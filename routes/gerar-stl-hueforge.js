@@ -15,9 +15,8 @@ import { fileURLToPath } from 'url';
 import { dirname }       from 'path';
 import Jimp from 'jimp';
 
-import { generateHueforgeStl } from '../app/hueforge-stl.js';
-import { gerarStlPro }         from './gerar-stl-pro.js';
-import { buildHueforgeTxt }    from './gerar-stl-pro.js';
+import { generateHueforgeStl, generateBookmarkStl, generateLithophaneFlatStl, generateLithophaneCurvedStl } from '../app/hueforge-stl.js';
+import { gerarStlPro, buildHueforgeTxt } from './gerar-stl-pro.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = dirname(__filename);
@@ -70,12 +69,16 @@ export async function gerarStlHueforge(req, res) {
 
     if (dErr || !design) return res.status(404).json({ error: 'Design não encontrado.' });
 
-    const isHueforge = String(design.familia || '').toLowerCase() === 'hueforge';
+    const familia = String(design.familia || '').toLowerCase();
+    const JS_FAMILIES = ['hueforge', 'marcadores', 'litofania', 'litofania-curva'];
+    const isJsMode = JS_FAMILIES.includes(familia);
 
-    // Produtos não-HueForge com imagem delegam para gerar-stl-pro (OpenSCAD)
-    if (!isHueforge) {
+    // Produtos não suportados em JS delegam para gerar-stl-pro (OpenSCAD)
+    if (!isJsMode) {
       return gerarStlPro(req, res);
     }
+
+    const isHueforge = familia === 'hueforge';
 
     // ── HueForge: geração pura em JS ─────────────────────────────────────
     const imagePath = rest.image_path;
@@ -147,8 +150,22 @@ export async function gerarStlHueforge(req, res) {
       })
     );
 
-    // Gerar STL
-    const stlBuffer = generateHueforgeStl({ heightmap, largura: larguraMm, altura: alturaMm, espBase, altRelevo });
+    // Gerar STL conforme a família
+    let stlBuffer;
+    if (familia === 'marcadores') {
+      stlBuffer = generateBookmarkStl({ heightmap, largura: larguraMm, altura: alturaMm, espBase, altRelevo,
+        holeDiameter: Number(rest.hole_diameter ?? 4),
+        holeMarginTop: Number(rest.hole_margin_top ?? 6) });
+    } else if (familia === 'litofania') {
+      stlBuffer = generateLithophaneFlatStl({ heightmap, largura: larguraMm, altura: alturaMm,
+        espMax: Number(rest.esp_max ?? 3.0), espMin: Number(rest.esp_min ?? 0.6) });
+    } else if (familia === 'litofania-curva') {
+      stlBuffer = generateLithophaneCurvedStl({ heightmap, alturaMm,
+        raio: Number(rest.raio ?? 50), angulo: Number(rest.angulo ?? 270),
+        espMax: Number(rest.esp_max ?? 3.0), espMin: Number(rest.esp_min ?? 0.6) });
+    } else {
+      stlBuffer = generateHueforgeStl({ heightmap, largura: larguraMm, altura: alturaMm, espBase, altRelevo });
+    }
     const stlUrl    = await uploadFile(stlStorage, stlBuffer, 'model/stl');
     if (!stlUrl) return res.status(500).json({ error: 'Erro no upload do STL.' });
 
