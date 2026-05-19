@@ -209,7 +209,7 @@ async function quantizeImage(inputPath, outputPath, numCores) {
 }
 
 /** Gera o guia TXT de mudança de filamento para HueForge. */
-function buildHueforgeTxt({ numCores, layerHeight, espessuraBase, alturaRelevo, larguraMm, alturaMm }) {
+export function buildHueforgeTxt({ numCores, layerHeight, espessuraBase, alturaRelevo, larguraMm, alturaMm }) {
   const lh            = layerHeight;
   const layersBase    = Math.ceil(espessuraBase / lh);
   const layersPerClr  = Math.max(1, Math.ceil((alturaRelevo / numCores) / lh));

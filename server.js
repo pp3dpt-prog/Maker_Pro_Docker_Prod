@@ -2,9 +2,10 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 
-import { downloadStl }  from './routes/download.js';
-import previewRouter    from './routes/preview.js';
-import { gerarStlPro }  from './routes/gerar-stl-pro.js';
+import { downloadStl }       from './routes/download.js';
+import previewRouter          from './routes/preview.js';
+import { gerarStlPro }        from './routes/gerar-stl-pro.js';
+import { gerarStlHueforge }   from './routes/gerar-stl-hueforge.js';
 
 const app = express();
 
@@ -24,8 +25,11 @@ app.post('/download-stl', downloadStl);
 // Preview (PNG) — sem créditos
 app.use('/api/preview', previewRouter);
 
-// STL parametrizado (SCAD) — preview + HueForge
+// STL parametrizado (SCAD) — preview
 app.post('/gerar-stl-pro', gerarStlPro);
+
+// STL para produtos com imagem (HueForge = JS puro; outros = OpenSCAD)
+app.post('/gerar-stl-hueforge', gerarStlHueforge);
 
 // ============================
 // Health check (Render)
