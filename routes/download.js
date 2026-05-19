@@ -7,7 +7,7 @@ import { v4 as uuid } from 'uuid';
 import { createClient } from '@supabase/supabase-js';
 import { PassThrough } from 'stream';
 import Jimp from 'jimp';
-import { generateHueforgeStl } from '../app/hueforge-stl.js';
+import { generateHueforgeStl, generateBookmarkStl, generateLithophaneFlatStl, generateLithophaneCurvedStl } from '../app/hueforge-stl.js';
 import { buildHueforgeTxt }   from './gerar-stl-pro.js';
 
 const OPENSCAD_BIN = 'openscad';
@@ -200,7 +200,8 @@ export async function downloadStl(req, res) {
     const base = path.join(TMP_DIR, jobId);
     const files = [];
 
-    const isHueforgeFamily = String(design.familia || '').toLowerCase() === 'hueforge';
+    const JS_FAMILIES_DL = ['hueforge', 'marcadores', 'portachaves', 'litofania', 'litofania-curva'];
+    const isHueforgeFamily = JS_FAMILIES_DL.includes(String(design.familia || '').toLowerCase());
     const isCaixa = design.familia === 'caixas';
 
     if (isHueforgeFamily && typeof paramsNormalizados.image_path === 'string' && paramsNormalizados.image_path.startsWith('/')) {
@@ -213,13 +214,40 @@ export async function downloadStl(req, res) {
           return img.bitmap.data[idx] / 255;
         })
       );
-      const stlBuffer = generateHueforgeStl({
-        heightmap,
-        largura: Number(paramsNormalizados.largura_mm ?? 100),
-        altura:  Number(paramsNormalizados.altura_mm  ?? 100),
-        espBase: Number(paramsNormalizados.espessura_base ?? 1.0),
-        altRelevo: Number(paramsNormalizados.altura_relevo ?? 2.0),
-      });
+      const familiaLower = String(design.familia || '').toLowerCase();
+      let stlBuffer;
+      if (familiaLower === 'marcadores' || familiaLower === 'portachaves') {
+        const largura = Number(paramsNormalizados.largura ?? paramsNormalizados.largura_mm ?? (familiaLower === 'portachaves' ? 55 : 20));
+        const altura  = Number(paramsNormalizados.altura  ?? paramsNormalizados.altura_mm  ?? (familiaLower === 'portachaves' ? 35 : 150));
+        stlBuffer = generateBookmarkStl({
+          heightmap, largura, altura,
+          espBase:   Number(paramsNormalizados.espessura ?? paramsNormalizados.espessura_base ?? (familiaLower === 'portachaves' ? 3.5 : 0.6)),
+          altRelevo: Number(paramsNormalizados.relevo    ?? paramsNormalizados.altura_relevo  ?? 1.5),
+          holeDiameter:  familiaLower === 'portachaves' ? 5 : Number(paramsNormalizados.hole_diameter ?? 4),
+          holeMarginTop: familiaLower === 'portachaves' ? 4 : Number(paramsNormalizados.hole_margin_top ?? 6),
+        });
+      } else if (familiaLower === 'litofania') {
+        stlBuffer = generateLithophaneFlatStl({ heightmap,
+          largura: Number(paramsNormalizados.largura_mm ?? 150),
+          altura:  Number(paramsNormalizados.altura_mm  ?? 150),
+          espMax:  Number(paramsNormalizados.esp_max ?? 3.0),
+          espMin:  Number(paramsNormalizados.esp_min ?? 0.6) });
+      } else if (familiaLower === 'litofania-curva') {
+        stlBuffer = generateLithophaneCurvedStl({ heightmap,
+          alturaMm: Number(paramsNormalizados.altura_mm ?? 150),
+          raio:     Number(paramsNormalizados.raio   ?? 50),
+          angulo:   Number(paramsNormalizados.angulo ?? 270),
+          espMax:   Number(paramsNormalizados.esp_max ?? 3.0),
+          espMin:   Number(paramsNormalizados.esp_min ?? 0.6) });
+      } else {
+        stlBuffer = generateHueforgeStl({
+          heightmap,
+          largura: Number(paramsNormalizados.largura_mm ?? 100),
+          altura:  Number(paramsNormalizados.altura_mm  ?? 100),
+          espBase: Number(paramsNormalizados.espessura_base ?? 1.0),
+          altRelevo: Number(paramsNormalizados.altura_relevo ?? 2.0),
+        });
+      }
       const stlPath = `${base}.stl`;
       await fsp.writeFile(stlPath, stlBuffer);
       files.push({ name: `${design_id}.stl`, path: stlPath });

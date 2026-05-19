@@ -70,7 +70,7 @@ export async function gerarStlHueforge(req, res) {
     if (dErr || !design) return res.status(404).json({ error: 'Design não encontrado.' });
 
     const familia = String(design.familia || '').toLowerCase();
-    const JS_FAMILIES = ['hueforge', 'marcadores', 'litofania', 'litofania-curva'];
+    const JS_FAMILIES = ['hueforge', 'marcadores', 'portachaves', 'litofania', 'litofania-curva'];
     const isJsMode = JS_FAMILIES.includes(familia);
 
     // Produtos não suportados em JS delegam para gerar-stl-pro (OpenSCAD)
@@ -156,6 +156,19 @@ export async function gerarStlHueforge(req, res) {
       stlBuffer = generateBookmarkStl({ heightmap, largura: larguraMm, altura: alturaMm, espBase, altRelevo,
         holeDiameter: Number(rest.hole_diameter ?? 4),
         holeMarginTop: Number(rest.hole_margin_top ?? 6) });
+    } else if (familia === 'portachaves') {
+      // Portachaves: usa bookmark generator — furo no topo, dimensões de portachaves
+      const largura = Number(rest.largura ?? rest.largura_mm ?? 55);
+      const altura  = Number(rest.altura  ?? rest.altura_mm  ?? 35);
+      stlBuffer = generateBookmarkStl({
+        heightmap,
+        largura,
+        altura,
+        espBase:  Number(rest.espessura ?? rest.espessura_base ?? 3.5),
+        altRelevo: Number(rest.relevo   ?? rest.altura_relevo  ?? 1.5),
+        holeDiameter:  5,   // furo para argola
+        holeMarginTop: 4,   // margem do furo ao topo
+      });
     } else if (familia === 'litofania') {
       stlBuffer = generateLithophaneFlatStl({ heightmap, largura: larguraMm, altura: alturaMm,
         espMax: Number(rest.esp_max ?? 3.0), espMin: Number(rest.esp_min ?? 0.6) });
