@@ -7,6 +7,7 @@ import { v4 as uuid } from 'uuid';
 import { createClient } from '@supabase/supabase-js';
 import { PassThrough } from 'stream';
 import Jimp from 'jimp';
+import { generateHueforgeStl } from '../app/hueforge-stl.js';
 
 const OPENSCAD_BIN = 'openscad';
 const TMP_DIR = path.join(process.cwd(), 'tmp');
@@ -198,9 +199,30 @@ export async function downloadStl(req, res) {
     const base = path.join(TMP_DIR, jobId);
     const files = [];
 
+    const isHueforgeFamily = String(design.familia || '').toLowerCase() === 'hueforge';
     const isCaixa = design.familia === 'caixas';
 
-    if (isCaixa) {
+    if (isHueforgeFamily && typeof paramsNormalizados.image_path === 'string' && paramsNormalizados.image_path.startsWith('/')) {
+      // HueForge: gerar STL com JS puro (imagem já processada acima)
+      const img = await Jimp.read(paramsNormalizados.image_path);
+      const w = img.getWidth(), h = img.getHeight();
+      const heightmap = Array.from({ length: h }, (_, r) =>
+        Array.from({ length: w }, (_, c) => {
+          const idx = img.getPixelIndex(c, r);
+          return img.bitmap.data[idx] / 255;
+        })
+      );
+      const stlBuffer = generateHueforgeStl({
+        heightmap,
+        largura: Number(paramsNormalizados.largura_mm ?? 100),
+        altura:  Number(paramsNormalizados.altura_mm  ?? 100),
+        espBase: Number(paramsNormalizados.espessura_base ?? 1.0),
+        altRelevo: Number(paramsNormalizados.altura_relevo ?? 2.0),
+      });
+      const stlPath = `${base}.stl`;
+      await fsp.writeFile(stlPath, stlBuffer);
+      files.push({ name: `${design_id}.stl`, path: stlPath });
+    } else if (isCaixa) {
       // Caixa — usa modo="corpo" e modo="tampa"
       const caixaPath = `${base}_caixa.stl`;
       await gerarSTL({
