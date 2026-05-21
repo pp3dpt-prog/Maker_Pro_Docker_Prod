@@ -364,7 +364,12 @@ export async function gerarStlPro(req, res) {
       } catch (_) {}
     }
 
-    const scadContent  = buildScadContent(params, templateText, qualityFn);
+    // Substituir path hardcoded legado pelo image_path injectado
+    let fixedTemplate = templateText;
+    if (isImageBased && params.image_path) {
+      fixedTemplate = fixedTemplate.replace(/import\s*\(\s*['"]\/app\/temp\/input\.svg['"]\s*\)/g, `import(image_path)`);
+    }
+    const scadContent  = buildScadContent(params, fixedTemplate, qualityFn);
     const templateHash = sha256(scadContent);
     const paramsHash   = sha256(`${produtoId}|${templateHash}|${stableJson(hashParams)}|${renderMode}`);
     const stlFilename  = `${produtoId}_${paramsHash}.stl`;
