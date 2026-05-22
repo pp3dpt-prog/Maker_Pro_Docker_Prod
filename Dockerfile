@@ -29,8 +29,8 @@ RUN mkdir -p /usr/share/fonts/truetype/custom && \
 
 # 6. LOG DE VERIFICAÇÃO (Para veres no Build Log do Render)
 RUN echo "--- FONTES DETECTADAS NO SISTEMA (families) ---" && \
-    fc-list : family | sort -u | grep -iE "Aladin|Amarante|Benne|Baloo" || \
-    echo "AVISO: Fontes Aladin/Amarante/Benne/Baloo não encontradas!"
+    fc-list : family | sort -u | grep -iE "Aladin|Amarante|Benne|Baloo|Anton|Chewy|Gloria|Lobster|Luckiest|Oswald|Pacifico|Press Start|Racing|Sigmar" || \
+    echo "AVISO: Algumas fontes não encontradas!"
 
 EXPOSE 10000
 
