@@ -6,19 +6,29 @@
     letter_1..13_height, letter_1..13_space
 */
 
+// Multiplicadores globais (ajustar conforme necessário)
+space_scale  = 1.2;
+height_scale = 1.2;
+
 spacing = [
   0,
-  letter_1_space,  letter_2_space,  letter_3_space,  letter_4_space,
-  letter_5_space,  letter_6_space,  letter_7_space,  letter_8_space,
-  letter_9_space,  letter_10_space, letter_11_space, letter_12_space,
-  letter_13_space
+  letter_1_space  * space_scale,  letter_2_space  * space_scale,
+  letter_3_space  * space_scale,  letter_4_space  * space_scale,
+  letter_5_space  * space_scale,  letter_6_space  * space_scale,
+  letter_7_space  * space_scale,  letter_8_space  * space_scale,
+  letter_9_space  * space_scale,  letter_10_space * space_scale,
+  letter_11_space * space_scale,  letter_12_space * space_scale,
+  letter_13_space * space_scale
 ];
 
 height = [
-  letter_1_height, letter_2_height, letter_3_height, letter_4_height,
-  letter_5_height, letter_6_height, letter_7_height, letter_8_height,
-  letter_9_height, letter_10_height, letter_11_height, letter_12_height,
-  letter_13_height
+  letter_1_height  * height_scale, letter_2_height  * height_scale,
+  letter_3_height  * height_scale, letter_4_height  * height_scale,
+  letter_5_height  * height_scale, letter_6_height  * height_scale,
+  letter_7_height  * height_scale, letter_8_height  * height_scale,
+  letter_9_height  * height_scale, letter_10_height * height_scale,
+  letter_11_height * height_scale, letter_12_height * height_scale,
+  letter_13_height * height_scale
 ];
 
 // Argola
