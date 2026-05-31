@@ -204,6 +204,7 @@ export async function downloadStl(req, res) {
     const JS_FAMILIES_DL = ['hueforge', 'marcadores', 'portachaves', 'litofania', 'litofania-curva'];
     const isHueforgeFamily = JS_FAMILIES_DL.includes(String(design.familia || '').toLowerCase());
     const isCaixa = design.familia === 'caixas';
+    const isLetras = design.familia === 'letras-decorativas';
 
     if (isHueforgeFamily && typeof paramsNormalizados.image_path === 'string' && paramsNormalizados.image_path.startsWith('/')) {
       // HueForge: gerar STL com JS puro (imagem já processada acima)
@@ -286,6 +287,22 @@ export async function downloadStl(req, res) {
         files.push({ name: 'tampa.stl', path: tampaPath });
         console.log('✅ Tampa gerada:', fs.existsSync(tampaPath));
       }
+    } else if (isLetras) {
+      const letraPath = `${base}_letra.stl`;
+      await gerarSTL({
+        scadTemplate: design.scad_template,
+        params: { ...paramsNormalizados, modo: 'corpo' },
+        outFile: letraPath,
+      });
+      files.push({ name: 'letra_inicial.stl', path: letraPath });
+
+      const nomePath = `${base}_nome.stl`;
+      await gerarSTL({
+        scadTemplate: design.scad_template,
+        params: { ...paramsNormalizados, modo: 'tampa' },
+        outFile: nomePath,
+      });
+      files.push({ name: 'nome_decorativo.stl', path: nomePath });
     } else {
       // Pet-tags e outros — gera diretamente sem modo
       const stlPath = `${base}.stl`;
