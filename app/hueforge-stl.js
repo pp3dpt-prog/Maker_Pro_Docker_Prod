@@ -35,7 +35,7 @@ export function generateBookmarkStl({ heightmap, largura, altura, espBase, altRe
   const inHole = (x, y) => (x - holeCx) ** 2 + (y - holeCy) ** 2 <= holeR ** 2;
   const quadInHole = (c, r) => inHole((c + 0.5) * scaleX, (r + 0.5) * scaleY);
 
-  const h = (r, c) => espBase + heightmap[r][c] * altRelevo;
+  const h = (r, c) => espBase + heightmap[rows - 1 - r][c] * altRelevo;
   const espTotal = espBase + altRelevo;
 
   const triangles = [];
