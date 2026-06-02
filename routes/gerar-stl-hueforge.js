@@ -150,10 +150,16 @@ export async function gerarStlHueforge(req, res) {
         pixels.push([this.bitmap.data[idx], this.bitmap.data[idx+1], this.bitmap.data[idx+2]]);
       });
 
-      let centers = Array.from({ length: n }, (_, i) => {
-        const seed = pixels[Math.floor(i * pixels.length / n)];
-        return [...seed];
-      });
+      // k-means++ para centros iniciais mais distintos
+      const centers = [pixels[Math.floor(Math.random() * pixels.length)].slice()];
+      while (centers.length < n) {
+        const dists = pixels.map(([r,g,b]) => Math.min(...centers.map(([cr,cg,cb]) => (r-cr)**2+(g-cg)**2+(b-cb)**2)));
+        const total = dists.reduce((a,b) => a+b, 0);
+        let rr = Math.random() * total;
+        let chosen = pixels[pixels.length-1].slice();
+        for (let i = 0; i < pixels.length; i++) { rr -= dists[i]; if (rr <= 0) { chosen = pixels[i].slice(); break; } }
+        centers.push(chosen);
+      }
       for (let iter = 0; iter < 20; iter++) {
         const sums = Array.from({ length: n }, () => [0, 0, 0]);
         const counts = new Array(n).fill(0);
