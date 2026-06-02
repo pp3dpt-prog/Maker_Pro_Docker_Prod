@@ -178,22 +178,60 @@ export async function downloadStl(req, res) {
       if (img.getWidth() > 100 || img.getHeight() > 100) {
         img.getWidth() >= img.getHeight() ? img.resize(100, Jimp.AUTO) : img.resize(Jimp.AUTO, 100);
       }
-      // Ajustes de imagem antes de converter para escala de cinzentos
+      // Ajustes de imagem
       const contraste = Number(paramsNormalizados.contraste ?? 0);
       const brilho    = Number(paramsNormalizados.brilho    ?? 0);
       if (contraste !== 0) img.contrast(Math.max(-1, Math.min(1, contraste)));
       if (brilho    !== 0) img.brightness(Math.max(-1, Math.min(1, brilho)));
-      img.grayscale();
-      if (isHueforge) {
-        const numCores = Math.max(2, Math.min(6, Number(paramsNormalizados.num_cores ?? 4)));
-        const n = numCores;
-        img.scan(0, 0, img.getWidth(), img.getHeight(), function (x, y, idx) {
-          const gray     = this.bitmap.data[idx];
-          const level    = Math.min(Math.floor(gray / 256 * n), n - 1);
-          const q        = n === 1 ? 0 : Math.round(level / (n - 1) * 255);
-          this.bitmap.data[idx] = this.bitmap.data[idx+1] = this.bitmap.data[idx+2] = q;
-        });
+
+      // ── Clustering RGB para HueForge colorido ─────────────────────────
+      const numCores = Math.max(2, Math.min(6, Number(paramsNormalizados.num_cores ?? 4)));
+      const n = numCores;
+      const iw = img.getWidth(), ih = img.getHeight();
+
+      const pixels = [];
+      img.scan(0, 0, iw, ih, function (x, y, idx) {
+        pixels.push([this.bitmap.data[idx], this.bitmap.data[idx+1], this.bitmap.data[idx+2]]);
+      });
+
+      let centers = Array.from({ length: n }, (_, i) => {
+        const seed = pixels[Math.floor(i * pixels.length / n)];
+        return [...seed];
+      });
+      for (let iter = 0; iter < 20; iter++) {
+        const sums = Array.from({ length: n }, () => [0, 0, 0]);
+        const counts = new Array(n).fill(0);
+        for (const [r, g, b] of pixels) {
+          let best = 0, bestD = Infinity;
+          for (let i = 0; i < n; i++) {
+            const d = (r-centers[i][0])**2 + (g-centers[i][1])**2 + (b-centers[i][2])**2;
+            if (d < bestD) { bestD = d; best = i; }
+          }
+          sums[best][0] += r; sums[best][1] += g; sums[best][2] += b;
+          counts[best]++;
+        }
+        centers = centers.map((c, i) => counts[i] > 0
+          ? [sums[i][0]/counts[i], sums[i][1]/counts[i], sums[i][2]/counts[i]]
+          : c);
       }
+
+      // Ordenar escuro → claro
+      const lum = ([r, g, b]) => 0.299*r + 0.587*g + 0.114*b;
+      centers.sort((a, b) => lum(a) - lum(b));
+
+      // Mapear pixels ao cluster → grayscale proporcional
+      let pi = 0;
+      img.scan(0, 0, iw, ih, function (x, y, idx) {
+        const [r, g, b] = pixels[pi++];
+        let best = 0, bestD = Infinity;
+        for (let i = 0; i < n; i++) {
+          const d = (r-centers[i][0])**2 + (g-centers[i][1])**2 + (b-centers[i][2])**2;
+          if (d < bestD) { bestD = d; best = i; }
+        }
+        const q = n === 1 ? 0 : Math.round(best / (n - 1) * 255);
+        this.bitmap.data[idx] = this.bitmap.data[idx+1] = this.bitmap.data[idx+2] = q;
+      });
+
       await img.writeAsync(procPath);
 
       paramsNormalizados.image_path = procPath;
