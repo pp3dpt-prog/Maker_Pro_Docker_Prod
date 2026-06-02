@@ -178,6 +178,11 @@ export async function downloadStl(req, res) {
       if (img.getWidth() > 100 || img.getHeight() > 100) {
         img.getWidth() >= img.getHeight() ? img.resize(100, Jimp.AUTO) : img.resize(Jimp.AUTO, 100);
       }
+      // Ajustes de imagem antes de converter para escala de cinzentos
+      const contraste = Number(paramsNormalizados.contraste ?? 0);
+      const brilho    = Number(paramsNormalizados.brilho    ?? 0);
+      if (contraste !== 0) img.contrast(Math.max(-1, Math.min(1, contraste)));
+      if (brilho    !== 0) img.brightness(Math.max(-1, Math.min(1, brilho)));
       img.grayscale();
       if (isHueforge) {
         const numCores = Math.max(2, Math.min(6, Number(paramsNormalizados.num_cores ?? 4)));
