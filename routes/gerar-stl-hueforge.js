@@ -95,9 +95,11 @@ export async function gerarStlHueforge(req, res) {
     const altRelevo    = Number(rest.altura_relevo  ?? 2.0);
     const larguraMm    = Number(rest.largura_mm     ?? 100);
     const alturaMm     = Number(rest.altura_mm      ?? 100);
+    const contraste    = Math.max(-1, Math.min(1, Number(rest.contraste ?? 0)));
+    const brilho       = Math.max(-1, Math.min(1, Number(rest.brilho    ?? 0)));
 
-    // Hash para cache
-    const paramsKey = sha256(JSON.stringify({ imagePath, numCores, layerHeight, espBase, altRelevo, larguraMm, alturaMm, renderMode }));
+    // Hash para cache (inclui contraste e brilho)
+    const paramsKey = sha256(JSON.stringify({ imagePath, numCores, layerHeight, espBase, altRelevo, larguraMm, alturaMm, contraste, brilho, renderMode }));
     const stlFilename = `${produtoId}_hf_${paramsKey}.stl`;
     const folder      = `users/${user.id}/${renderMode}`;
     const stlStorage  = `${folder}/${stlFilename}`;
@@ -126,11 +128,13 @@ export async function gerarStlHueforge(req, res) {
     if (imgErr || !imgData) return res.status(400).json({ error: `Erro ao descarregar imagem: ${imgErr?.message}` });
     await fsp.writeFile(rawPath, Buffer.from(await imgData.arrayBuffer()));
 
-    // Redimensionar e quantizar
+    // Redimensionar, ajustar e quantizar
     const img = await Jimp.read(rawPath);
     if (img.getWidth() > maxPx || img.getHeight() > maxPx) {
       img.getWidth() >= img.getHeight() ? img.resize(maxPx, Jimp.AUTO) : img.resize(Jimp.AUTO, maxPx);
     }
+    if (contraste !== 0) img.contrast(contraste);
+    if (brilho    !== 0) img.brightness(brilho);
     img.grayscale();
     const n = numCores;
     img.scan(0, 0, img.getWidth(), img.getHeight(), function (x, y, idx) {
