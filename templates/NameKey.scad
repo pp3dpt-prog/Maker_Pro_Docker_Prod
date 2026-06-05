@@ -10,6 +10,10 @@
 space_scale  = 1.2;
 height_scale = 1.2;
 
+// Limitar resolução das letras: o twist com $fn alto torna a geração
+// muito lenta para nomes longos. 36 é suave que chegue para porta-chaves.
+$fn = min($fn, 36);
+
 spacing = [
   0,
   letter_1_space  * space_scale,  letter_2_space  * space_scale,
