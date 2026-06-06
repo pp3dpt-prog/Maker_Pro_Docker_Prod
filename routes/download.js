@@ -140,14 +140,16 @@ export async function downloadStl(req, res) {
     // Verificar plano e limite de downloads
     const { data: perfil } = await supabase
       .from('prod_perfis')
-      .select('plano, downloads_mes, downloads_limite')
+      .select('plano, downloads_mes, downloads_limite, downloads_comprados')
       .eq('id', user.id)
       .single();
 
     if (!perfil) return res.status(402).send('PROFILE_NOT_FOUND');
 
-    // Verificar se atingiu o limite mensal
-    if (perfil.downloads_mes >= perfil.downloads_limite) {
+    // Pode descarregar se tiver downloads comprados (avulsos) OU quota mensal disponível
+    const temComprados = (perfil.downloads_comprados ?? 0) > 0;
+    const temQuota     = perfil.downloads_mes < perfil.downloads_limite;
+    if (!temComprados && !temQuota) {
       return res.status(402).send('DOWNLOAD_LIMIT_REACHED');
     }
 
@@ -371,10 +373,18 @@ export async function downloadStl(req, res) {
     }
 
     // Incrementar contador de downloads do utilizador
-    await supabase
-      .from('prod_perfis')
-      .update({ downloads_mes: perfil.downloads_mes + 1 })
-      .eq('id', user.id);
+    // Consumir primeiro os downloads comprados; só depois a quota mensal
+    if (temComprados) {
+      await supabase
+        .from('prod_perfis')
+        .update({ downloads_comprados: perfil.downloads_comprados - 1 })
+        .eq('id', user.id);
+    } else {
+      await supabase
+        .from('prod_perfis')
+        .update({ downloads_mes: perfil.downloads_mes + 1 })
+        .eq('id', user.id);
+    }
 
     // Incrementar total_downloads no design
     const { error: rpcError } = await supabase.rpc('increment_downloads', { design_id });
