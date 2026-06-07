@@ -34,20 +34,24 @@ export function generateBookmarkStl({ heightmap, largura, altura, espBase, altRe
   const holeCx = largura / 2;
   const holeCy = altura - (holeMarginTop ?? 6);
 
-  const inHole = (x, y) => (x - holeCx) ** 2 + (y - holeCy) ** 2 <= holeR ** 2;
-  const quadInHole = (c, r) => inHole((c + 0.5) * scaleX, (r + 0.5) * scaleY);
-  // Furo válido só dentro da grelha de quads
-  const isHole = (c, r) =>
-    c >= 0 && c < cols - 1 && r >= 0 && r < rows - 1 && quadInHole(c, r);
-
   const h = (r, c) => espBase + heightmap[rows - 1 - r][c] * altRelevo;
+
+  // Limpa uma zona de quads à volta do furo; o furo redondo (cilindro) é depois
+  // cosido a essa abertura por um "colar" de triângulos → furo redondo e malha
+  // fechada, independente da resolução da grelha.
+  const cellDiag = Math.hypot(scaleX, scaleY);
+  const clearR   = holeR + cellDiag;
+  const cleared  = (c, r) => {
+    const cx = (c + 0.5) * scaleX, cy = (r + 0.5) * scaleY;
+    return (cx - holeCx) ** 2 + (cy - holeCy) ** 2 <= clearR ** 2;
+  };
 
   const triangles = [];
 
-  // ── Superfície superior (sem área do furo) ───────────────────────────────
+  // ── Superfície superior (sem a zona limpa do furo) ───────────────────────
   for (let r = 0; r < rows - 1; r++) {
     for (let c = 0; c < cols - 1; c++) {
-      if (quadInHole(c, r)) continue;
+      if (cleared(c, r)) continue;
       const x0 = c * scaleX, y0 = r * scaleY;
       const x1 = (c+1)*scaleX, y1 = (r+1)*scaleY;
       const p00=[x0,y0,h(r,c)], p10=[x1,y0,h(r,c+1)];
@@ -56,10 +60,10 @@ export function generateBookmarkStl({ heightmap, largura, altura, espBase, altRe
     }
   }
 
-  // ── Base inferior (sem área do furo) ─────────────────────────────────────
+  // ── Base inferior (sem a zona limpa do furo) ─────────────────────────────
   for (let r = 0; r < rows - 1; r++) {
     for (let c = 0; c < cols - 1; c++) {
-      if (quadInHole(c, r)) continue;
+      if (cleared(c, r)) continue;
       const x0=c*scaleX, y0=r*scaleY, x1=(c+1)*scaleX, y1=(r+1)*scaleY;
       triangles.push([[x0,y0,0],[x1,y1,0],[x1,y0,0]], [[x0,y0,0],[x0,y1,0],[x1,y1,0]]);
     }
@@ -77,37 +81,109 @@ export function generateBookmarkStl({ heightmap, largura, altura, espBase, altRe
     triangles.push([[largura,y0,0],[largura,y0,h(r,cols-1)],[largura,y1,h(r+1,cols-1)]], [[largura,y0,0],[largura,y1,h(r+1,cols-1)],[largura,y1,0]]);
   }
 
-  // ── Paredes interiores do furo (passante, alinhado à grelha) ─────────────
-  // Para cada quad do furo, levanta uma parede vertical (z=0 → topo) em cada
-  // aresta que confina com material sólido. As paredes partilham vértices com
-  // as superfícies adjacentes → malha fechada (watertight), furo a toda a
-  // espessura (sem tampa em cima nem em baixo).
-  for (let r = 0; r < rows - 1; r++) {
-    for (let c = 0; c < cols - 1; c++) {
-      if (!quadInHole(c, r)) continue;
-      const x0 = c*scaleX, y0 = r*scaleY, x1 = (c+1)*scaleX, y1 = (r+1)*scaleY;
-
-      // Aresta esquerda (x=x0): sólido em c-1 → normal para +x (interior do furo)
-      if (!isHole(c - 1, r)) {
-        const zt0 = h(r, c), zt1 = h(r + 1, c);
-        triangles.push([[x0,y0,0],[x0,y1,0],[x0,y1,zt1]], [[x0,y0,0],[x0,y1,zt1],[x0,y0,zt0]]);
+  // ── Furo cilíndrico passante + colar ─────────────────────────────────────
+  // Traça o laço-fronteira da abertura (arestas da grelha entre quad limpo e
+  // quad mantido), em ordem ao longo da fronteira → cada par consecutivo
+  // partilha uma aresta real da superfície (malha fica fechada).
+  const inGrid = (c, r) => c >= 0 && c < cols - 1 && r >= 0 && r < rows - 1;
+  const clearedSafe = (c, r) => inGrid(c, r) && cleared(c, r);
+  const vid = (vc, vr) => vr * cols + vc;
+  const adjE = new Map();
+  const addEdge = (a, b) => {
+    if (!adjE.has(a)) adjE.set(a, []);
+    if (!adjE.has(b)) adjE.set(b, []);
+    adjE.get(a).push(b); adjE.get(b).push(a);
+  };
+  for (let vr = 0; vr < rows; vr++) {
+    for (let vc = 0; vc < cols; vc++) {
+      // aresta vertical (vc,vr)-(vc,vr+1): separa células (vc-1,vr) | (vc,vr)
+      if (vr < rows - 1 && clearedSafe(vc - 1, vr) !== clearedSafe(vc, vr)) {
+        addEdge(vid(vc, vr), vid(vc, vr + 1));
       }
-      // Aresta direita (x=x1): sólido em c+1 → normal para -x
-      if (!isHole(c + 1, r)) {
-        const zt0 = h(r, c + 1), zt1 = h(r + 1, c + 1);
-        triangles.push([[x1,y0,0],[x1,y1,zt1],[x1,y1,0]], [[x1,y0,0],[x1,y0,zt0],[x1,y1,zt1]]);
-      }
-      // Aresta inferior (y=y0): sólido em r-1 → normal para +y
-      if (!isHole(c, r - 1)) {
-        const zt0 = h(r, c), zt1 = h(r, c + 1);
-        triangles.push([[x0,y0,0],[x1,y0,zt1],[x1,y0,0]], [[x0,y0,0],[x0,y0,zt0],[x1,y0,zt1]]);
-      }
-      // Aresta superior (y=y1): sólido em r+1 → normal para -y
-      if (!isHole(c, r + 1)) {
-        const zt0 = h(r + 1, c), zt1 = h(r + 1, c + 1);
-        triangles.push([[x0,y1,0],[x1,y1,0],[x1,y1,zt1]], [[x0,y1,0],[x1,y1,zt1],[x0,y1,zt0]]);
+      // aresta horizontal (vc,vr)-(vc+1,vr): separa células (vc,vr-1) | (vc,vr)
+      if (vc < cols - 1 && clearedSafe(vc, vr - 1) !== clearedSafe(vc, vr)) {
+        addEdge(vid(vc, vr), vid(vc + 1, vr));
       }
     }
+  }
+
+  // Percorre o laço seguindo arestas-fronteira
+  const rim = [];
+  if (adjE.size) {
+    const start = adjE.keys().next().value;
+    let prev = -1, cur = start;
+    do {
+      const vc = cur % cols, vr = Math.floor(cur / cols);
+      const x = vc * scaleX, y = vr * scaleY;
+      let ang = Math.atan2(y - holeCy, x - holeCx);
+      if (ang < 0) ang += 2 * Math.PI;
+      rim.push({ p: [x, y, h(vr, vc)], ang, vc, vr });
+      const nbrs = adjE.get(cur);
+      let next = nbrs.find(n => n !== prev);
+      if (next === undefined) next = nbrs[0];
+      prev = cur; cur = next;
+    } while (cur !== start && rim.length <= adjE.size);
+  }
+  if (rim.length < 3) return buildBinaryStl(triangles); // sem furo utilizável
+
+  // Orienta CCW (shoelace) e roda para começar no menor ângulo → ascendente
+  let area2 = 0;
+  for (let i = 0; i < rim.length; i++) {
+    const a = rim[i].p, b = rim[(i + 1) % rim.length].p;
+    area2 += a[0] * b[1] - b[0] * a[1];
+  }
+  if (area2 < 0) rim.reverse();
+  let minI = 0;
+  for (let i = 1; i < rim.length; i++) if (rim[i].ang < rim[minI].ang) minI = i;
+  const rimO = rim.slice(minI).concat(rim.slice(0, minI));
+  rim.length = 0; rim.push(...rimO);
+
+  // Altura do topo do furo = altura da superfície na célula do centro
+  const cc = Math.min(cols - 2, Math.max(0, Math.floor(holeCx / scaleX)));
+  const rc = Math.min(rows - 2, Math.max(0, Math.floor(holeCy / scaleY)));
+  const zTop = h(rc, cc);
+
+  // Pontos do cilindro (topo a zTop, fundo a 0)
+  const SEGS = 48;
+  const circTop = [], circBot = [];
+  for (let k = 0; k < SEGS; k++) {
+    const a = (k / SEGS) * 2 * Math.PI;
+    const x = holeCx + holeR * Math.cos(a), y = holeCy + holeR * Math.sin(a);
+    circTop.push({ p: [x, y, zTop], ang: a });
+    circBot.push({ p: [x, y, 0],    ang: a });
+  }
+
+  // Cose dois laços (exterior=rim, interior=círculo) por ângulo → anel fechado.
+  const stitch = (outer, inner, flip) => {
+    const m = outer.length, k = inner.length;
+    if (m === 0 || k === 0) return;
+    const angO = i => outer[i % m].ang + 2 * Math.PI * Math.floor(i / m);
+    const angI = j => inner[j % k].ang + 2 * Math.PI * Math.floor(j / k);
+    let i = 0, j = 0;
+    while (i < m || j < k) {
+      let tri;
+      if (i < m && (j >= k || angO(i + 1) <= angI(j + 1))) {
+        tri = [outer[i % m].p, outer[(i + 1) % m].p, inner[j % k].p];
+        i++;
+      } else {
+        tri = [inner[j % k].p, inner[(j + 1) % k].p, outer[i % m].p];
+        j++;
+      }
+      triangles.push(flip ? [tri[0], tri[2], tri[1]] : tri);
+    }
+  };
+
+  // Rim ao nível da base (z=0) para o colar de baixo
+  const rimBot = rim.map(v => ({ p: [v.p[0], v.p[1], 0], ang: v.ang }));
+
+  stitch(rim,    circTop, false);  // colar no topo (rim → círculo de cima)
+  stitch(rimBot, circBot, true);   // colar no fundo (rim z=0 → círculo de baixo)
+
+  // Parede do cilindro (círculo de cima → círculo de baixo)
+  for (let k = 0; k < SEGS; k++) {
+    const t0 = circTop[k].p, t1 = circTop[(k + 1) % SEGS].p;
+    const b0 = circBot[k].p, b1 = circBot[(k + 1) % SEGS].p;
+    triangles.push([t0, b0, b1], [t0, b1, t1]);
   }
 
   return buildBinaryStl(triangles);

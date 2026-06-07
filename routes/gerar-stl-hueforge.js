@@ -202,8 +202,11 @@ export async function gerarStlHueforge(req, res) {
         this.bitmap.data[idx] = this.bitmap.data[idx+1] = this.bitmap.data[idx+2] = q;
       });
     } else {
-      // ── Modo P&B: grayscale + quantização por brilho ──────────────────
+      // ── Modo P&B: grayscale + auto-contraste + quantização por brilho ──
+      // normalize() estica a gama de tons para 0..255, para que imagens de
+      // baixo contraste não saiam todas no mesmo nível (relevo plano).
       img.grayscale();
+      img.normalize();
       img.scan(0, 0, w, h, function (x, y, idx) {
         const gray  = this.bitmap.data[idx];
         const level = Math.min(Math.floor(gray / 256 * n), n - 1);

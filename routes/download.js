@@ -243,7 +243,10 @@ export async function downloadStl(req, res) {
           this.bitmap.data[idx] = this.bitmap.data[idx+1] = this.bitmap.data[idx+2] = q;
         });
       } else {
+        // grayscale + auto-contraste: imagens de baixo contraste deixam de
+        // sair todas no mesmo nível (relevo plano).
         img.grayscale();
+        img.normalize();
         img.scan(0, 0, iw, ih, function (x, y, idx) {
           const gray  = this.bitmap.data[idx];
           const level = Math.min(Math.floor(gray / 256 * n), n - 1);
