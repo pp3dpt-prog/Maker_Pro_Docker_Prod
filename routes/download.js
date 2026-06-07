@@ -369,6 +369,17 @@ export async function downloadStl(req, res) {
         outFile: nomePath,
       });
       files.push({ name: 'nome_decorativo.stl', path: nomePath });
+
+      // Tampa traseira (fecha a caixa de luz) — só se o produto a pedir.
+      if (paramsNormalizados.tem_traseira === true || paramsNormalizados.tem_traseira === 1) {
+        const trasPath = `${base}_traseira.stl`;
+        await gerarSTL({
+          scadTemplate: design.scad_template,
+          params: { ...paramsNormalizados, modo: 'traseira' },
+          outFile: trasPath,
+        });
+        files.push({ name: 'tampa_traseira.stl', path: trasPath });
+      }
     } else {
       // Pet-tags e outros — gera diretamente sem modo
       const stlPath = `${base}.stl`;
