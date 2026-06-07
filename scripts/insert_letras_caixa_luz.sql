@@ -44,9 +44,10 @@ fonte_nome_real =
   fonte_nome == "Chewy"             ? "Chewy" :
   "Lobster";
 
-// Frente nunca maior que a profundidade; recesso do nome contido na frente.
+// Frente nunca maior que a profundidade. O recesso do nome pode atravessar a
+// frente fina e entrar na cavidade, para o nome encaixar de facto na inicial.
 frente  = min(espessura_frente, espessura_inicial - 0.6);
-recesso = max(0, min(sobreposicao, frente - 0.4));
+recesso = max(0, min(sobreposicao, espessura_inicial - 0.6));
 
 module letra_2d() {
     text(letra, size = altura, font = fonte_inicial_real,
