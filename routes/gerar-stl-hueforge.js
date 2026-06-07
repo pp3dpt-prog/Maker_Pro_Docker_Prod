@@ -160,7 +160,7 @@ export async function gerarStlHueforge(req, res) {
       });
 
       // k-means++ para centros iniciais mais distintos
-      const centers = [pixels[Math.floor(Math.random() * pixels.length)].slice()];
+      let centers = [pixels[Math.floor(Math.random() * pixels.length)].slice()];
       while (centers.length < n) {
         const dists = pixels.map(([r,g,b]) => Math.min(...centers.map(([cr,cg,cb]) => (r-cr)**2+(g-cg)**2+(b-cb)**2)));
         const total = dists.reduce((a,b) => a+b, 0);

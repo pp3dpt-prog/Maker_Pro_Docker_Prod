@@ -204,7 +204,7 @@ export async function downloadStl(req, res) {
           pixels.push([this.bitmap.data[idx], this.bitmap.data[idx+1], this.bitmap.data[idx+2]]);
         });
         // k-means++ para centros iniciais mais distintos
-        const centers = [pixels[Math.floor(Math.random() * pixels.length)].slice()];
+        let centers = [pixels[Math.floor(Math.random() * pixels.length)].slice()];
         while (centers.length < n) {
           const dists = pixels.map(([r,g,b]) => Math.min(...centers.map(([cr,cg,cb]) => (r-cr)**2+(g-cg)**2+(b-cb)**2)));
           const total = dists.reduce((a,b) => a+b, 0);
