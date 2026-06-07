@@ -4,11 +4,12 @@
 
 UPDATE prod_designs SET
   scad_template = $scad$
-// Caixa de Luz — letra inicial (casca oca) + nome decorativo + tampa traseira.
+// Caixa de Luz — letra inicial (casca oca) + revestimento p/ nome + tampa traseira.
 // Parâmetros injectados pelo backend:
 // letra, fonte_inicial, nome, fonte_nome, altura, espessura_inicial,
-// espessura_nome, sobreposicao, posicao_nome, tamanho_nome,
-// espessura_frente, parede_luz, espessura_traseira, furo_cabo, modo
+// espessura_nome, posicao_nome, tamanho_nome, sobreposicao,
+// espessura_frente, parede_luz, borda_nome,
+// espessura_traseira, encaixe_traseira, furo_pos, furo_cabo, furo_altura, modo
 // IMPORTANTE: não redefinir variáveis injectadas (quebra a injecção).
 
 fonte_inicial_real =
@@ -22,10 +23,10 @@ fonte_nome_real =
   fonte_nome == "Chewy"             ? "Chewy" :
   "Lobster";
 
-// Frente nunca maior que a profundidade. O recesso do nome pode atravessar a
-// frente fina e entrar na cavidade, para o nome encaixar de facto na inicial.
-frente  = min(espessura_frente, espessura_inicial - 0.6);
-recesso = max(0, min(sobreposicao, espessura_inicial - 0.6));
+// Derivados (não injectados)
+frente   = min(espessura_frente, espessura_inicial - 0.6);
+folga    = 0.35;                  // folga de encaixe (FDM)
+socket_h = sobreposicao + 1.0;    // altura do revestimento (deixa ~1mm de fundo)
 
 module letra_2d() {
     text(letra, size = altura, font = fonte_inicial_real,
@@ -37,40 +38,64 @@ module silhueta_nome() {
          halign = "center", valign = "center", spacing = 0.85);
 }
 
-// Letra inicial como caixa de luz:
-//  - frente difusora (espessura 'frente') no topo  → z = espessura_inicial
-//  - cavidade oca com paredes 'parede_luz'
-//  - traseira aberta (z = 0) para a fita LED
-//  - recesso do nome na frente, para encaixe do nome decorativo
-module corpo_luz() {
+module nome_2d() { translate([0, posicao_nome]) silhueta_nome(); }
+
+// Casca oca: frente difusora no topo (z = espessura_inicial), traseira aberta (z = 0).
+module casca() {
     difference() {
-        difference() {
-            linear_extrude(height = espessura_inicial) letra_2d();
-            // cavidade: aberta no fundo, deixa 'frente' de espessura no topo
-            translate([0, 0, -0.01])
-                linear_extrude(height = espessura_inicial - frente + 0.01)
-                    offset(r = -parede_luz) letra_2d();
-        }
-        // recesso do nome na frente (topo)
-        translate([0, posicao_nome, espessura_inicial - recesso])
-            linear_extrude(height = recesso + 1)
-                silhueta_nome();
+        linear_extrude(height = espessura_inicial) letra_2d();
+        translate([0, 0, -0.01])
+            linear_extrude(height = espessura_inicial - frente + 0.01)
+                offset(r = -parede_luz) letra_2d();
     }
 }
 
+// Revestimento (socket) para o nome, na frente: rebordo elevado com a forma do
+// nome (limitado à letra) e o nome rebaixado, deixando fundo (não fura o difusor).
+module revestimento() {
+    difference() {
+        translate([0, 0, espessura_inicial - 0.01])
+            linear_extrude(height = socket_h + 0.01)
+                intersection() { offset(r = borda_nome) nome_2d(); letra_2d(); }
+        translate([0, 0, espessura_inicial + socket_h - sobreposicao])
+            linear_extrude(height = sobreposicao + 1)
+                offset(r = folga) nome_2d();
+    }
+}
+
+module corpo_luz() {
+    difference() {
+        union() { casca(); revestimento(); }
+        // furo do cabo lateral: entra pela base e abre na cavidade
+        if (furo_pos == "Lateral" && furo_cabo > 0) {
+            translate([0, -altura * 0.55, (espessura_inicial - frente) / 2])
+                rotate([-90, 0, 0])
+                    cylinder(h = altura * 0.65, r = furo_cabo / 2, $fn = 32);
+        }
+    }
+}
+
+// Nome decorativo (peça separada, ao centro) para encaixar/colar no revestimento.
 module tampa_caixa() {
     linear_extrude(height = espessura_nome, center = false)
         silhueta_nome();
 }
 
-// Tampa traseira: placa com a forma da letra que fecha a caixa por trás,
-// com furo opcional para o cabo da fita LED (furo_cabo = 0 → sem furo).
+// Tampa traseira: placa com a forma da letra + lábio que encaixa na cavidade.
 module traseira_caixa() {
     difference() {
-        linear_extrude(height = espessura_traseira) letra_2d();
-        if (furo_cabo > 0)
-            translate([0, -altura * 0.30, -0.5])
-                cylinder(h = espessura_traseira + 1, r = furo_cabo / 2, $fn = 24);
+        union() {
+            linear_extrude(height = espessura_traseira) letra_2d();
+            translate([0, 0, espessura_traseira - 0.01])
+                linear_extrude(height = encaixe_traseira)
+                    offset(r = -(parede_luz + folga)) letra_2d();
+        }
+        // furo do cabo traseiro
+        if (furo_pos == "Traseira" && furo_cabo > 0) {
+            translate([0, furo_altura, -0.5])
+                cylinder(h = espessura_traseira + encaixe_traseira + 1,
+                         r = furo_cabo / 2, $fn = 32);
+        }
     }
 }
 
@@ -82,7 +107,7 @@ if (modo == "corpo") {
     traseira_caixa();
 } else {
     corpo_luz();
-    translate([0, posicao_nome, espessura_inicial - recesso])
+    translate([0, posicao_nome, espessura_inicial + socket_h - sobreposicao])
         tampa_caixa();
 }
 $scad$,
@@ -117,7 +142,7 @@ $scad$,
       },
       "espessura_inicial": {
         "ui": { "label": "Profundidade da caixa de luz", "widget": "slider" },
-        "min": 10, "max": 30, "unit": "mm", "order": 7, "default": 18
+        "min": 12, "max": 40, "unit": "mm", "order": 7, "default": 20
       },
       "espessura_frente": {
         "ui": { "label": "Espessura da frente (difusor)", "widget": "slider", "step": 0.2 },
@@ -125,7 +150,7 @@ $scad$,
       },
       "parede_luz": {
         "ui": { "label": "Espessura das paredes", "widget": "slider", "step": 0.2 },
-        "min": 1, "max": 4, "unit": "mm", "order": 9, "default": 1.6
+        "min": 1, "max": 4, "unit": "mm", "order": 9, "default": 2
       },
       "tem_traseira": {
         "ui": { "label": "Gerar tampa traseira (fechar a caixa)", "widget": "checkbox" },
@@ -135,21 +160,38 @@ $scad$,
         "ui": { "label": "Espessura da tampa traseira", "widget": "slider", "step": 0.2 },
         "min": 1, "max": 4, "unit": "mm", "order": 11, "default": 2
       },
+      "encaixe_traseira": {
+        "ui": { "label": "Profundidade do encaixe da tampa", "widget": "slider", "step": 0.5 },
+        "min": 1, "max": 8, "unit": "mm", "order": 12, "default": 4
+      },
+      "furo_pos": {
+        "ui": { "label": "Furo para o cabo", "widget": "select",
+                "options": ["Nenhum","Traseira","Lateral"] },
+        "order": 13, "default": "Traseira"
+      },
       "furo_cabo": {
-        "ui": { "label": "Furo para o cabo (0 = sem furo)", "widget": "slider", "step": 0.5 },
-        "min": 0, "max": 12, "unit": "mm", "order": 12, "default": 6
+        "ui": { "label": "Diâmetro do furo do cabo", "widget": "slider", "step": 0.5 },
+        "min": 2, "max": 12, "unit": "mm", "order": 14, "default": 6
+      },
+      "furo_altura": {
+        "ui": { "label": "Posição do furo (vertical)", "widget": "slider", "step": 5 },
+        "min": -120, "max": 120, "unit": "mm", "order": 15, "default": -40
+      },
+      "sobreposicao": {
+        "ui": { "label": "Encaixe do nome (profundidade)", "widget": "slider", "step": 0.5 },
+        "min": 1, "max": 8, "unit": "mm", "order": 16, "default": 3
+      },
+      "borda_nome": {
+        "ui": { "label": "Borda do revestimento do nome", "widget": "slider", "step": 0.2 },
+        "min": 0.8, "max": 4, "unit": "mm", "order": 17, "default": 1.5
       },
       "espessura_nome": {
         "ui": { "label": "Espessura do nome", "widget": "slider" },
-        "min": 5, "max": 15, "unit": "mm", "order": 13, "default": 8
-      },
-      "sobreposicao": {
-        "ui": { "label": "Encaixe do nome (recesso)", "widget": "slider" },
-        "min": 0, "max": 15, "unit": "mm", "order": 14, "default": 3
+        "min": 3, "max": 15, "unit": "mm", "order": 18, "default": 6
       },
       "posicao_nome": {
         "ui": { "label": "Posição vertical do nome", "widget": "slider" },
-        "min": -100, "max": 100, "unit": "mm", "order": 15, "default": 0
+        "min": -100, "max": 100, "unit": "mm", "order": 19, "default": 0
       }
     }
   }$json$::jsonb
