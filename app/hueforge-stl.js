@@ -13,8 +13,10 @@
 export function generateHueforgeStl({ heightmap, largura, altura, espBase, altRelevo }) {
   const rows = heightmap.length;
   const cols = heightmap[0].length;
-  const scaleX = largura / cols;
-  const scaleY = altura  / rows;
+  // (cols-1)/(rows-1): a malha tem cols×rows vértices → cols-1×rows-1 quads,
+  // por isso a última coluna/linha cai exatamente em largura/altura (paredes encaixam).
+  const scaleX = largura / Math.max(1, cols - 1);
+  const scaleY = altura  / Math.max(1, rows - 1);
   const h = (r, c) => espBase + heightmap[r][c] * altRelevo;
   return _buildHeightmapStl({ rows, cols, scaleX, scaleY, h, largura, altura });
 }
@@ -25,8 +27,8 @@ export function generateHueforgeStl({ heightmap, largura, altura, espBase, altRe
 export function generateBookmarkStl({ heightmap, largura, altura, espBase, altRelevo, holeDiameter, holeMarginTop }) {
   const rows = heightmap.length;
   const cols = heightmap[0].length;
-  const scaleX = largura / cols;
-  const scaleY = altura  / rows;
+  const scaleX = largura / Math.max(1, cols - 1);
+  const scaleY = altura  / Math.max(1, rows - 1);
 
   const holeR  = (holeDiameter ?? 4) / 2;
   const holeCx = largura / 2;
@@ -34,9 +36,11 @@ export function generateBookmarkStl({ heightmap, largura, altura, espBase, altRe
 
   const inHole = (x, y) => (x - holeCx) ** 2 + (y - holeCy) ** 2 <= holeR ** 2;
   const quadInHole = (c, r) => inHole((c + 0.5) * scaleX, (r + 0.5) * scaleY);
+  // Furo válido só dentro da grelha de quads
+  const isHole = (c, r) =>
+    c >= 0 && c < cols - 1 && r >= 0 && r < rows - 1 && quadInHole(c, r);
 
   const h = (r, c) => espBase + heightmap[rows - 1 - r][c] * altRelevo;
-  const espTotal = espBase + altRelevo;
 
   const triangles = [];
 
@@ -73,20 +77,37 @@ export function generateBookmarkStl({ heightmap, largura, altura, espBase, altRe
     triangles.push([[largura,y0,0],[largura,y0,h(r,cols-1)],[largura,y1,h(r+1,cols-1)]], [[largura,y0,0],[largura,y1,h(r+1,cols-1)],[largura,y1,0]]);
   }
 
-  // ── Parede cilíndrica do furo ─────────────────────────────────────────────
-  const SEGS = 32;
-  for (let i = 0; i < SEGS; i++) {
-    const a0 = (i / SEGS) * 2 * Math.PI;
-    const a1 = ((i+1) / SEGS) * 2 * Math.PI;
-    const x0 = holeCx + holeR * Math.cos(a0), y0c = holeCy + holeR * Math.sin(a0);
-    const x1 = holeCx + holeR * Math.cos(a1), y1c = holeCy + holeR * Math.sin(a1);
-    // Parede interior do furo (normal para o interior)
-    triangles.push([[x0,y0c,0],[x0,y0c,espTotal],[x1,y1c,espTotal]]);
-    triangles.push([[x0,y0c,0],[x1,y1c,espTotal],[x1,y1c,0]]);
-    // Topo do furo (normal para cima)
-    triangles.push([[holeCx,holeCy,espTotal],[x0,y0c,espTotal],[x1,y1c,espTotal]]);
-    // Fundo do furo (normal para baixo)
-    triangles.push([[holeCx,holeCy,0],[x1,y1c,0],[x0,y0c,0]]);
+  // ── Paredes interiores do furo (passante, alinhado à grelha) ─────────────
+  // Para cada quad do furo, levanta uma parede vertical (z=0 → topo) em cada
+  // aresta que confina com material sólido. As paredes partilham vértices com
+  // as superfícies adjacentes → malha fechada (watertight), furo a toda a
+  // espessura (sem tampa em cima nem em baixo).
+  for (let r = 0; r < rows - 1; r++) {
+    for (let c = 0; c < cols - 1; c++) {
+      if (!quadInHole(c, r)) continue;
+      const x0 = c*scaleX, y0 = r*scaleY, x1 = (c+1)*scaleX, y1 = (r+1)*scaleY;
+
+      // Aresta esquerda (x=x0): sólido em c-1 → normal para +x (interior do furo)
+      if (!isHole(c - 1, r)) {
+        const zt0 = h(r, c), zt1 = h(r + 1, c);
+        triangles.push([[x0,y0,0],[x0,y1,0],[x0,y1,zt1]], [[x0,y0,0],[x0,y1,zt1],[x0,y0,zt0]]);
+      }
+      // Aresta direita (x=x1): sólido em c+1 → normal para -x
+      if (!isHole(c + 1, r)) {
+        const zt0 = h(r, c + 1), zt1 = h(r + 1, c + 1);
+        triangles.push([[x1,y0,0],[x1,y1,zt1],[x1,y1,0]], [[x1,y0,0],[x1,y0,zt0],[x1,y1,zt1]]);
+      }
+      // Aresta inferior (y=y0): sólido em r-1 → normal para +y
+      if (!isHole(c, r - 1)) {
+        const zt0 = h(r, c), zt1 = h(r, c + 1);
+        triangles.push([[x0,y0,0],[x1,y0,zt1],[x1,y0,0]], [[x0,y0,0],[x0,y0,zt0],[x1,y0,zt1]]);
+      }
+      // Aresta superior (y=y1): sólido em r+1 → normal para -y
+      if (!isHole(c, r + 1)) {
+        const zt0 = h(r + 1, c), zt1 = h(r + 1, c + 1);
+        triangles.push([[x0,y1,0],[x1,y1,0],[x1,y1,zt1]], [[x0,y1,0],[x1,y1,zt1],[x0,y1,zt0]]);
+      }
+    }
   }
 
   return buildBinaryStl(triangles);
@@ -99,8 +120,8 @@ export function generateBookmarkStl({ heightmap, largura, altura, espBase, altRe
 export function generateLithophaneFlatStl({ heightmap, largura, altura, espMax, espMin }) {
   const rows = heightmap.length;
   const cols = heightmap[0].length;
-  const scaleX = largura / cols;
-  const scaleY = altura  / rows;
+  const scaleX = largura / Math.max(1, cols - 1);
+  const scaleY = altura  / Math.max(1, rows - 1);
   // Invert: dark pixel = thick (high z), light pixel = thin (low z)
   const h = (r, c) => espMin + (1 - heightmap[r][c]) * (espMax - espMin);
   return _buildHeightmapStl({ rows, cols, scaleX, scaleY, h, largura, altura });
@@ -195,8 +216,14 @@ function _buildHeightmapStl({ rows, cols, scaleX, scaleY, h, largura, altura }) 
     }
   }
 
-  // Base
-  triangles.push([[0,0,0],[largura,altura,0],[largura,0,0]], [[0,0,0],[0,altura,0],[largura,altura,0]]);
+  // Base — subdividida na mesma grelha das paredes (senão as arestas não
+  // encaixam e a malha fica aberta no perímetro).
+  for (let r = 0; r < rows-1; r++) {
+    for (let c = 0; c < cols-1; c++) {
+      const x0=c*scaleX, y0=r*scaleY, x1=(c+1)*scaleX, y1=(r+1)*scaleY;
+      triangles.push([[x0,y0,0],[x1,y1,0],[x1,y0,0]], [[x0,y0,0],[x0,y1,0],[x1,y1,0]]);
+    }
+  }
 
   // Paredes
   for (let c=0;c<cols-1;c++) {

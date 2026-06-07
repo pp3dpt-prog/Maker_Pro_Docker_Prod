@@ -8,6 +8,7 @@ import { createClient } from '@supabase/supabase-js';
 import { PassThrough } from 'stream';
 import Jimp from 'jimp';
 import { generateHueforgeStl, generateBookmarkStl, generateLithophaneFlatStl, generateLithophaneCurvedStl } from '../app/hueforge-stl.js';
+import { frameImage, aspectForFamily } from '../app/image-proc.js';
 import { buildHueforgeTxt }   from './gerar-stl-pro.js';
 
 const OPENSCAD_BIN = 'openscad';
@@ -174,12 +175,17 @@ export async function downloadStl(req, res) {
       if (imgErr || !imgData) throw new Error(`Erro ao descarregar imagem: ${imgErr?.message}`);
       await fsp.writeFile(rawPath, Buffer.from(await imgData.arrayBuffer()));
 
-      // 100px: bom equilíbrio entre qualidade e velocidade para OpenSCAD surface()
-      const isHueforge = String(design.familia || '').toLowerCase() === 'hueforge';
-      const img = await Jimp.read(rawPath);
-      if (img.getWidth() > 100 || img.getHeight() > 100) {
-        img.getWidth() >= img.getHeight() ? img.resize(100, Jimp.AUTO) : img.resize(Jimp.AUTO, 100);
-      }
+      // Enquadrar (igual ao preview: ajuste/zoom/posição). 100px no lado maior.
+      const familiaImg = String(design.familia || '').toLowerCase();
+      const rawImg = await Jimp.read(rawPath);
+      const img = await frameImage(rawImg, {
+        targetLong: 100,
+        aspect: aspectForFamily(familiaImg, paramsNormalizados),
+        fit: paramsNormalizados.img_ajuste ?? 'Esticar',
+        zoom: paramsNormalizados.img_zoom,
+        posX: paramsNormalizados.img_pos_x,
+        posY: paramsNormalizados.img_pos_y,
+      });
       // Ajustes de imagem
       const contraste = Number(paramsNormalizados.contraste ?? 0);
       const brilho    = Number(paramsNormalizados.brilho    ?? 0);

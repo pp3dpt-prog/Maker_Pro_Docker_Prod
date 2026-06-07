@@ -16,6 +16,7 @@ import { dirname }       from 'path';
 import Jimp from 'jimp';
 
 import { generateHueforgeStl, generateBookmarkStl, generateLithophaneFlatStl, generateLithophaneCurvedStl } from '../app/hueforge-stl.js';
+import { frameImage, aspectForFamily } from '../app/image-proc.js';
 import { gerarStlPro, buildHueforgeTxt } from './gerar-stl-pro.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -98,8 +99,15 @@ export async function gerarStlHueforge(req, res) {
     const contraste    = Math.max(-1, Math.min(1, Number(rest.contraste ?? 0)));
     const brilho       = Math.max(-1, Math.min(1, Number(rest.brilho    ?? 0)));
 
-    // Hash para cache (inclui contraste e brilho)
-    const paramsKey = sha256(JSON.stringify({ imagePath, numCores, layerHeight, espBase, altRelevo, larguraMm, alturaMm, contraste, brilho, renderMode }));
+    // Enquadramento da imagem (igual ao preview do editor)
+    const ajuste  = rest.img_ajuste ?? 'Esticar';   // sem param → comportamento antigo
+    const zoom    = Number(rest.img_zoom  ?? 100);
+    const posX    = Number(rest.img_pos_x ?? 0);
+    const posY    = Number(rest.img_pos_y ?? 0);
+    const modoCor = rest.modo_cor === true || rest.modo_cor === 1 || rest.modo_cor === '1';
+
+    // Hash para cache — inclui ajustes + modo de cor + versão (não serve STLs antigos)
+    const paramsKey = sha256(JSON.stringify({ v: 2, imagePath, numCores, layerHeight, espBase, altRelevo, larguraMm, alturaMm, contraste, brilho, ajuste, zoom, posX, posY, modoCor, renderMode }));
     const stlFilename = `${produtoId}_hf_${paramsKey}.stl`;
     const folder      = `users/${user.id}/${renderMode}`;
     const stlStorage  = `${folder}/${stlFilename}`;
@@ -128,16 +136,17 @@ export async function gerarStlHueforge(req, res) {
     if (imgErr || !imgData) return res.status(400).json({ error: `Erro ao descarregar imagem: ${imgErr?.message}` });
     await fsp.writeFile(rawPath, Buffer.from(await imgData.arrayBuffer()));
 
-    // Redimensionar e ajustar imagem
-    const img = await Jimp.read(rawPath);
-    if (img.getWidth() > maxPx || img.getHeight() > maxPx) {
-      img.getWidth() >= img.getHeight() ? img.resize(maxPx, Jimp.AUTO) : img.resize(Jimp.AUTO, maxPx);
-    }
+    // Enquadrar (igual ao preview: ajuste/zoom/posição) e ajustar tom
+    const rawImg = await Jimp.read(rawPath);
+    const img = await frameImage(rawImg, {
+      targetLong: maxPx,
+      aspect: aspectForFamily(familia, rest),
+      fit: ajuste, zoom, posX, posY,
+    });
     if (contraste !== 0) img.contrast(contraste);
     if (brilho    !== 0) img.brightness(brilho);
 
     // ── Clustering RGB ou grayscale conforme modo_cor ────────────────────
-    const modoCor = rest.modo_cor === true || rest.modo_cor === 1 || rest.modo_cor === '1';
     const n = numCores;
     const w = img.getWidth(), h = img.getHeight();
 
