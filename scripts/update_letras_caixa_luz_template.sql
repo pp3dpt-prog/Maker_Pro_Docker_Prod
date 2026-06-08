@@ -1,6 +1,5 @@
 -- Atualiza o produto letras-caixa-luz (template + parametros) na linha existente.
--- Usar este UPDATE em vez de re-correr o INSERT (o id ja existe).
--- Corre no SQL editor do Supabase.
+-- Usar este UPDATE em vez de re-correr o INSERT (o id ja existe). SQL editor do Supabase.
 
 UPDATE prod_designs SET
   scad_template = $scad$
@@ -26,7 +25,8 @@ fonte_nome_real =
 // Derivados (não injectados)
 frente   = min(espessura_frente, espessura_inicial - 0.6);
 folga    = 0.35;                  // folga de encaixe (FDM)
-socket_h = sobreposicao + 1.0;    // altura do revestimento (deixa ~1mm de fundo)
+// material sólido atrás do nome (recesso + ~1.2mm de fundo), sem passar a traseira
+reforco  = min(sobreposicao + 1.2, espessura_inicial - 0.6);
 
 module letra_2d() {
     text(letra, size = altura, font = fonte_inicial_real,
@@ -50,22 +50,25 @@ module casca() {
     }
 }
 
-// Revestimento (socket) para o nome, na frente: rebordo elevado com a forma do
-// nome (limitado à letra) e o nome rebaixado, deixando fundo (não fura o difusor).
-module revestimento() {
-    difference() {
-        translate([0, 0, espessura_inicial - 0.01])
-            linear_extrude(height = socket_h + 0.01)
-                intersection() { offset(r = borda_nome) nome_2d(); letra_2d(); }
-        translate([0, 0, espessura_inicial + socket_h - sobreposicao])
-            linear_extrude(height = sobreposicao + 1)
-                offset(r = folga) nome_2d();
-    }
+// Área (2D) do socket do nome, limitada à letra: nome + borda.
+module nome_socket_2d() {
+    intersection() { offset(r = borda_nome) nome_2d(); letra_2d(); }
 }
 
 module corpo_luz() {
     difference() {
-        union() { casca(); revestimento(); }
+        union() {
+            casca();
+            // reforço sólido por dentro, atrás do nome, para o recesso ter fundo
+            // e não furar a cavidade (o nome entra PARA DENTRO da frente).
+            translate([0, 0, espessura_inicial - reforco])
+                linear_extrude(height = reforco + 0.01)
+                    nome_socket_2d();
+        }
+        // recesso do nome na frente: o nome encaixa cá dentro e cola-se
+        translate([0, 0, espessura_inicial - sobreposicao])
+            linear_extrude(height = sobreposicao + 1)
+                offset(r = folga) nome_2d();
         // furo do cabo lateral: entra pela base e abre na cavidade
         if (furo_pos == "Lateral" && furo_cabo > 0) {
             translate([0, -altura * 0.55, (espessura_inicial - frente) / 2])
@@ -107,7 +110,7 @@ if (modo == "corpo") {
     traseira_caixa();
 } else {
     corpo_luz();
-    translate([0, posicao_nome, espessura_inicial + socket_h - sobreposicao])
+    translate([0, posicao_nome, espessura_inicial - sobreposicao])
         tampa_caixa();
 }
 $scad$,
@@ -179,7 +182,7 @@ $scad$,
       },
       "sobreposicao": {
         "ui": { "label": "Encaixe do nome (profundidade)", "widget": "slider", "step": 0.5 },
-        "min": 1, "max": 8, "unit": "mm", "order": 16, "default": 3
+        "min": 1, "max": 8, "unit": "mm", "order": 16, "default": 4
       },
       "borda_nome": {
         "ui": { "label": "Borda do revestimento do nome", "widget": "slider", "step": 0.2 },
@@ -187,7 +190,7 @@ $scad$,
       },
       "espessura_nome": {
         "ui": { "label": "Espessura do nome", "widget": "slider" },
-        "min": 3, "max": 15, "unit": "mm", "order": 18, "default": 6
+        "min": 2, "max": 15, "unit": "mm", "order": 18, "default": 4
       },
       "posicao_nome": {
         "ui": { "label": "Posição vertical do nome", "widget": "slider" },
