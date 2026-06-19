@@ -19,8 +19,8 @@ n_tam      = is_undef(n_tam)      ? 18           : n_tam;  // tamanho do nome (m
 esp_parede = is_undef(esp_parede) ? 4.0          : esp_parede; // paredes do canal LED
 esp_fundo  = is_undef(esp_fundo)  ? 2.0          : esp_fundo;  // fundo da base
 alt_canal  = is_undef(alt_canal)  ? 16           : alt_canal;  // altura interna do canal LED
-esp_tampa  = is_undef(esp_tampa)  ? 3.5          : esp_tampa;  // espessura da tampa difusora
-prof_nome  = is_undef(prof_nome)  ? 2.0          : prof_nome;  // profundidade do escavado do nome
+esp_topo   = is_undef(esp_topo)   ? 4.0          : esp_topo;   // espessura do topo da tampa
+prof_nome  = is_undef(prof_nome)  ? 2.0          : prof_nome;  // profundidade do balde do nome (< esp_topo)
 
 // Folga de montagem tampa ↔ base (0.2–0.3 mm para encaixar sem forçar)
 folga = 0.25;
@@ -71,29 +71,34 @@ module parte1_base() {
 }
 
 // ── PARTE 2 — Tampa (caixa idêntica à base, encaixa por cima) ──
-// Mesmas paredes que a base, fundo ABERTO (encosta na base por baixo),
-// topo FECHADO com o nome escavado.
-// A luz do LED sobe pelo interior da letra e sai pelos recortes do nome.
+// Paredes em forma de letra (fundo aberto, encaixa na base por baixo).
+// Topo sólido (esp_topo mm) com um balde/tabuleiro onde o nome assenta.
+// O fundo do balde é sólido — as letras coloridas são coladas lá dentro.
+
+module nome_exterior_2d() {
+  // Nome ligeiramente expandido para criar folga de encaixe no balde
+  minkowski() { nome_2d(); circle(r=0.4, $fn=16); }
+}
 
 module parte2_tampa() {
   difference() {
     union() {
-      // Paredes laterais: mesma secção transversal da base, ligeiramente
-      // menores (folga) para encaixar dentro das paredes exteriores da base.
+      // Paredes laterais (mesma forma que a base, ligeiramente menores)
       linear_extrude(alt_canal)
         difference() {
-          exterior_tampa_2d();   // outer: letra + (esp_parede - folga)
-          letra_2d();            // inner: oco em forma de letra (canal de luz)
+          exterior_tampa_2d();
+          letra_2d();
         }
-      // Topo sólido (face visível com o nome)
+      // Topo sólido (mais espesso para aguentar o balde do nome)
       translate([0, 0, alt_canal])
-        linear_extrude(esp_fundo)
+        linear_extrude(esp_topo)
           exterior_tampa_2d();
     }
-    // Nome escavado no topo: as letras coloridas encaixam aqui
-    translate([0, 0, alt_canal - prof_nome])
-      linear_extrude(prof_nome + esp_fundo + 1)
-        nome_2d();
+    // Balde do nome: recesso com fundo sólido (não corta até ao fim)
+    // Profundidade = prof_nome; fundo sólido = esp_topo - prof_nome
+    translate([0, 0, alt_canal + esp_topo - prof_nome])
+      linear_extrude(prof_nome + 1)
+        nome_exterior_2d();
   }
 }
 
@@ -102,7 +107,8 @@ module parte2_tampa() {
 // Imprimir na cor de destaque.
 
 module parte3_nome() {
-  linear_extrude(prof_nome - 0.1)
+  // Altura ligeiramente menor que o balde para encaixar sem forçar
+  linear_extrude(prof_nome - 0.2)
     nome_2d();
 }
 
