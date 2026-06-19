@@ -1,6 +1,12 @@
 // ═══════════════════════════════════════════════════════════════
-//  Porta-chaves com Nome Multicor  (até 3 cores / níveis)
-//  Cada nível tem o seu próprio "raio de expansão" das letras.
+//  Porta-chaves com Nome Multicor  (até 3 cores)
+//
+//  Estrutura:
+//   1 cor  → só as letras
+//   2 cores → base = letras + N mm de contorno  |  topo = letras
+//   3 cores → base = letras + N mm  |  meio = letras + M mm  |  topo = letras
+//
+//  O furo da argola fica no topo do bloco de letras.
 // ═══════════════════════════════════════════════════════════════
 
 nome        = is_undef(nome)        ? "Nome"        : nome;
@@ -8,31 +14,21 @@ fonte       = is_undef(fonte)       ? "Sacramento"  : fonte;
 tamanho     = is_undef(tamanho)     ? 20            : tamanho;
 num_cores   = is_undef(num_cores)   ? 3             : num_cores;
 
-// Altura de cada nível (todos iguais — o utilizador escolhe)
+// Altura igual para todos os níveis
 altura      = is_undef(altura)      ? 2.0           : altura;
 
-// Expansão lateral (mm para fora das letras) de cada nível de cor
-// offset maior = patamar mais afastado das letras (mas mantém o contorno)
-// offset menor = patamar mais colado às letras
-// Cor final = letras puras (sem expansão)
-offset_cor1 = is_undef(offset_cor1) ? 8             : offset_cor1;
-offset_cor2 = is_undef(offset_cor2) ? 4             : offset_cor2;
+// Quanto cada nível sobressai para fora das letras (mm)
+// — mantém a forma das letras, só expande o contorno
+offset_cor1 = is_undef(offset_cor1) ? 4             : offset_cor1;
+offset_cor2 = is_undef(offset_cor2) ? 2             : offset_cor2;
 
-// Suavidade do cloud por nível (fn baixo = borda mais angular; alto = mais suave)
-fn_cor1 = 6;
-fn_cor2 = 14;
+// ── Furo da argola ─────────────────────────────────────────────
+furo_r  = 1.5;
 
-// ── Argola ─────────────────────────────────────────────────────
-furo_r = 1.5;
-lug_r  = furo_r + 3.5;
+// Posição Y do furo: dentro do bloco de letras, encostado ao topo
+// (topo do cloud = meia-altura estimada do texto + expansão do nível base)
+furo_y  = tamanho * 0.6 + offset_cor1 - furo_r - 2.0;
 
-// Topo estimado do cloud base (usa offset_cor1, o maior)
-cloud_top_y = tamanho * 0.6 + offset_cor1;
-
-// Centro do disco da aba, acima do cloud com 1 mm de folga
-lug_y = cloud_top_y + lug_r + 1.0;
-
-// Altura total = nº de níveis × altura por nível
 total_h = num_cores * altura;
 
 // ── Módulos ────────────────────────────────────────────────────
@@ -45,33 +41,11 @@ module texto_2d() {
        valign  = "center");
 }
 
-// Expande as letras r mm para fora — mantém o contorno das letras visível
+// Expande as letras r mm — a forma das letras mantém-se visível
 module cloud_2d(r, fn_val) {
-  if (r <= 0) {
+  minkowski() {
     texto_2d();
-  } else {
-    minkowski() {
-      texto_2d();
-      circle(r = r, $fn = fn_val);
-    }
-  }
-}
-
-// Aba circular para a argola + pescoço a ligar ao cloud
-module aba_2d() {
-  neck_w = max(lug_r * 1.5, 5);
-  union() {
-    translate([0, lug_y]) circle(r = lug_r, $fn = 24);
-    translate([-neck_w / 2, cloud_top_y - 1.0])
-      square([neck_w, lug_y - cloud_top_y + 1.0]);
-  }
-}
-
-// Nível base: cloud mais largo + aba (fica sempre na cor 1)
-module corpo_base_2d() {
-  union() {
-    cloud_2d(offset_cor1, fn_cor1);
-    aba_2d();
+    circle(r = r, $fn = fn_val);
   }
 }
 
@@ -81,27 +55,28 @@ difference() {
   union() {
 
     if (num_cores == 1) {
+      // Só as letras
       linear_extrude(altura)
-        corpo_base_2d();
+        texto_2d();
 
     } else if (num_cores == 2) {
-      // Cor 1: base larga com aba
+      // Base: letras + offset_cor1 mm de contorno
       linear_extrude(altura)
-        corpo_base_2d();
-      // Cor 2: letras — contorno de cor 1 visível à volta
+        cloud_2d(offset_cor1, 8);
+      // Topo: letras (cor 2 visível nas letras; cor 1 visível no contorno)
       translate([0, 0, altura])
         linear_extrude(altura)
           texto_2d();
 
     } else {
-      // Cor 1: base larga com aba
+      // Base: letras + offset_cor1 mm
       linear_extrude(altura)
-        corpo_base_2d();
-      // Cor 2: cloud intermédio — anel de cor 1 visível à volta
+        cloud_2d(offset_cor1, 6);
+      // Meio: letras + offset_cor2 mm (anel de cor 1 visível à volta)
       translate([0, 0, altura])
         linear_extrude(altura)
-          cloud_2d(offset_cor2, fn_cor2);
-      // Cor 3: letras — anel de cor 2 visível à volta
+          cloud_2d(offset_cor2, 14);
+      // Topo: letras (anel de cor 2 visível à volta)
       translate([0, 0, altura * 2])
         linear_extrude(altura)
           texto_2d();
@@ -109,7 +84,7 @@ difference() {
 
   }
 
-  // Furo da argola no centro do disco da aba
-  translate([0, lug_y, -1])
+  // Furo da argola — no topo do bloco de letras, centrado
+  translate([0, furo_y, -1])
     cylinder(h = total_h + 2, r = furo_r, $fn = 24);
 }
