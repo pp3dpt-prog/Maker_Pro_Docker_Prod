@@ -152,7 +152,13 @@ function sanitizeParams(raw) {
   return out;
 }
 
-/** Escreve os params como variáveis SCAD no topo do template. */
+/** Escreve os params como variáveis SCAD.
+ *
+ * Os parâmetros do utilizador são injetados DEPOIS do template para garantir
+ * "last wins" do OpenSCAD — caso contrário, linhas do tipo
+ *   `nome = is_undef(nome) ? "Nome" : nome;`
+ * no template ficam como última definição e o valor injetado é ignorado.
+ */
 function buildScadContent(params, templateText, qualityFn) {
   const vars = Object.entries(params)
     .map(([k, v]) => {
@@ -161,13 +167,15 @@ function buildScadContent(params, templateText, qualityFn) {
     })
     .join('\n');
 
-  return `// Parâmetros injetados automaticamente
-${vars}
+  return `// Qualidade de renderização
 quality_fn = ${qualityFn};
 $fn = quality_fn;
 
 // Template do produto
 ${templateText}
+
+// Parâmetros do utilizador (sobrepõem os defaults do template — last wins no OpenSCAD)
+${vars}
 `.trim();
 }
 
