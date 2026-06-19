@@ -6,25 +6,24 @@
 //  modo = "nome"  → Letras do nome para encaixar no balde  (cor destaque)
 // ═══════════════════════════════════════════════════════════════
 
-letra      = is_undef(letra)      ? "S"    : letra;
-nome       = is_undef(nome)       ? "Sahil": nome;
-fonte      = is_undef(fonte)      ? "Sacramento" : fonte;
-modo       = is_undef(modo)       ? "corpo" : modo;
+letra          = is_undef(letra)          ? "S"          : letra;
+nome           = is_undef(nome)           ? "Sahil"      : nome;
+fonte          = is_undef(fonte)          ? "Sacramento" : fonte;
+modo           = is_undef(modo)           ? "corpo"      : modo;
 
-l_tam      = is_undef(l_tam)      ? 80   : l_tam;   // tamanho da letra inicial (mm)
-n_tam      = is_undef(n_tam)      ? 18   : n_tam;   // tamanho do nome (mm)
+l_tam          = is_undef(l_tam)          ? 80   : l_tam;
+n_tam          = is_undef(n_tam)          ? 18   : n_tam;
+esp_parede     = is_undef(esp_parede)     ? 4.0  : esp_parede;
+esp_fundo      = is_undef(esp_fundo)      ? 2.0  : esp_fundo;
+alt_canal      = is_undef(alt_canal)      ? 16   : alt_canal;
+esp_topo       = is_undef(esp_topo)       ? 1.5  : esp_topo;
+prof_nome      = is_undef(prof_nome)      ? 2.5  : prof_nome;
+saliencia_nome = is_undef(saliencia_nome) ? 10   : saliencia_nome;
 
-esp_parede = is_undef(esp_parede) ? 4.0  : esp_parede; // paredes do canal LED
-esp_fundo  = is_undef(esp_fundo)  ? 2.0  : esp_fundo;  // fundo sólido da base
-alt_canal  = is_undef(alt_canal)  ? 16   : alt_canal;  // altura do canal LED
-esp_topo      = is_undef(esp_topo)      ? 1.5  : esp_topo;      // topo fino da tampa (luz difunde-se)
-prof_nome     = is_undef(prof_nome)     ? 2.5  : prof_nome;     // profundidade do balde (pende para dentro)
-saliencia_nome = is_undef(saliencia_nome) ? 10   : saliencia_nome; // quanto as letras sobressaem do topo (mm)
-
-folga            = 0.25; // folga tampa ↔ base
-folga_balde      = 0.3;  // folga letra ↔ interior do balde
-esp_parede_balde = 1.2;  // espessura das paredes do balde
-fundo_balde      = 0.8;  // espessura do fundo do balde
+folga            = 0.25;
+folga_balde      = 0.3;
+esp_parede_balde = 1.2;
+fundo_balde      = 0.8;
 
 // ── Formas 2D ─────────────────────────────────────────────────
 
@@ -46,12 +45,12 @@ module exterior_tampa_2d() {
   minkowski() { letra_2d(); circle(r=esp_parede - folga, $fn=32); }
 }
 
-// Interior do balde (onde a letra assenta) = nome + folga de encaixe
+// Interior do balde = nome + folga de encaixe
 module balde_interior_2d() {
   minkowski() { nome_2d(); circle(r=folga_balde, $fn=16); }
 }
 
-// Exterior do balde (inclui as paredes)
+// Exterior do balde = nome + folga + paredes
 module balde_exterior_2d() {
   minkowski() { nome_2d(); circle(r=folga_balde + esp_parede_balde, $fn=16); }
 }
@@ -60,21 +59,16 @@ module balde_exterior_2d() {
 
 module parte1_base() {
   difference() {
-    linear_extrude(esp_fundo + alt_canal)
-      exterior_2d();
+    linear_extrude(esp_fundo + alt_canal) exterior_2d();
     translate([0, 0, esp_fundo])
-      linear_extrude(alt_canal + 1)
-        letra_2d();
+      linear_extrude(alt_canal + 1) letra_2d();
   }
 }
 
 // ── PARTE 2 — Tampa ───────────────────────────────────────────
 // Paredes em forma de letra (fundo aberto, encaixa sobre a base).
-// Topo FINO (esp_topo ≤ 1.8 mm) para a luz difundir-se.
-// Balde pende do topo para DENTRO da câmara de luz:
-//   - paredes à volta do nome (esp_parede_balde)
-//   - fundo sólido (fundo_balde)
-//   - aberto no topo → letras inserem-se por cima e colam
+// Topo fino (esp_topo ≤ 1.8 mm) para a luz difundir-se.
+// Balde pende do topo para dentro — CLIPPED à letra (nada sai fora).
 
 module parte2_tampa() {
   difference() {
@@ -91,32 +85,39 @@ module parte2_tampa() {
         linear_extrude(esp_topo)
           exterior_tampa_2d();
 
-      // Balde: pende do topo para dentro (prof_nome mm abaixo do topo)
-      // Paredes + fundo do balde; aberto no topo (z = alt_canal)
+      // Balde: paredes + fundo, clipped ao interior da letra
       translate([0, 0, alt_canal - prof_nome])
         difference() {
-          linear_extrude(prof_nome)
-            balde_exterior_2d();
+          // Paredes do balde, apenas dentro da letra
+          intersection() {
+            linear_extrude(prof_nome) balde_exterior_2d();
+            linear_extrude(prof_nome) letra_2d();
+          }
           // Oco interior acima do fundo
           translate([0, 0, fundo_balde])
             linear_extrude(prof_nome)
-              balde_interior_2d();
+              intersection() {
+                balde_interior_2d();
+                letra_2d();
+              }
         }
     }
 
-    // Abertura no topo para inserir as letras (= interior do balde)
+    // Abertura no topo para inserir as letras — clipped à letra
     translate([0, 0, alt_canal - 1])
       linear_extrude(esp_topo + 2)
-        balde_interior_2d();
+        intersection() {
+          balde_interior_2d();
+          letra_2d();
+        }
   }
 }
 
 // ── PARTE 3 — Letras do nome ───────────────────────────────────
 // Inserem-se pela abertura no topo, descem até ao fundo do balde.
-// Altura = prof_nome + esp_topo - 0.2 → ficam rasas com o topo da tampa.
+// Sobressaem saliencia_nome mm acima do topo da tampa.
 
 module parte3_nome() {
-  // Altura = balde (acima do fundo) + topo + saliência acima do topo
   linear_extrude(prof_nome - fundo_balde + esp_topo + saliencia_nome)
     nome_2d();
 }
