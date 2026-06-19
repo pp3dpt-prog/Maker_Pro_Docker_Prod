@@ -17,8 +17,9 @@ n_tam      = is_undef(n_tam)      ? 18   : n_tam;   // tamanho do nome (mm)
 esp_parede = is_undef(esp_parede) ? 4.0  : esp_parede; // paredes do canal LED
 esp_fundo  = is_undef(esp_fundo)  ? 2.0  : esp_fundo;  // fundo sólido da base
 alt_canal  = is_undef(alt_canal)  ? 16   : alt_canal;  // altura do canal LED
-esp_topo   = is_undef(esp_topo)   ? 1.5  : esp_topo;   // topo fino da tampa (luz difunde-se)
-prof_nome  = is_undef(prof_nome)  ? 2.5  : prof_nome;  // profundidade do balde (pende para dentro)
+esp_topo      = is_undef(esp_topo)      ? 1.5  : esp_topo;      // topo fino da tampa (luz difunde-se)
+prof_nome     = is_undef(prof_nome)     ? 2.5  : prof_nome;     // profundidade do balde (pende para dentro)
+saliencia_nome = is_undef(saliencia_nome) ? 10   : saliencia_nome; // quanto as letras sobressaem do topo (mm)
 
 folga            = 0.25; // folga tampa ↔ base
 folga_balde      = 0.3;  // folga letra ↔ interior do balde
@@ -115,7 +116,8 @@ module parte2_tampa() {
 // Altura = prof_nome + esp_topo - 0.2 → ficam rasas com o topo da tampa.
 
 module parte3_nome() {
-  linear_extrude(prof_nome + esp_topo - 0.2)
+  // Altura = balde (acima do fundo) + topo + saliência acima do topo
+  linear_extrude(prof_nome - fundo_balde + esp_topo + saliencia_nome)
     nome_2d();
 }
 
