@@ -8,15 +8,13 @@ fonte       = is_undef(fonte)       ? "Sacramento"  : fonte;
 tamanho     = is_undef(tamanho)     ? 20            : tamanho;
 num_cores   = is_undef(num_cores)   ? 3             : num_cores;
 
-// Espessura (altura Z) de cada nível
-esp_cor1    = is_undef(esp_cor1)    ? 2.0           : esp_cor1;
-esp_cor2    = is_undef(esp_cor2)    ? 1.5           : esp_cor2;
-esp_cor3    = is_undef(esp_cor3)    ? 2.0           : esp_cor3;
+// Altura de cada nível (todos iguais — o utilizador escolhe)
+altura      = is_undef(altura)      ? 2.0           : altura;
 
 // Expansão lateral (mm para fora das letras) de cada nível de cor
 // offset maior = patamar mais afastado das letras (mas mantém o contorno)
 // offset menor = patamar mais colado às letras
-// Cor 3 = letras puras (sem expansão — é o topo visível com as letras)
+// Cor final = letras puras (sem expansão)
 offset_cor1 = is_undef(offset_cor1) ? 8             : offset_cor1;
 offset_cor2 = is_undef(offset_cor2) ? 4             : offset_cor2;
 
@@ -34,10 +32,8 @@ cloud_top_y = tamanho * 0.6 + offset_cor1;
 // Centro do disco da aba, acima do cloud com 1 mm de folga
 lug_y = cloud_top_y + lug_r + 1.0;
 
-// Altura total
-total_h = (num_cores >= 3) ? (esp_cor1 + esp_cor2 + esp_cor3)
-        : (num_cores == 2) ? (esp_cor1 + esp_cor2)
-        : esp_cor1;
+// Altura total = nº de níveis × altura por nível
+total_h = num_cores * altura;
 
 // ── Módulos ────────────────────────────────────────────────────
 
@@ -85,30 +81,29 @@ difference() {
   union() {
 
     if (num_cores == 1) {
-      // Uma cor: base larga com aba
-      linear_extrude(esp_cor1)
+      linear_extrude(altura)
         corpo_base_2d();
 
     } else if (num_cores == 2) {
       // Cor 1: base larga com aba
-      linear_extrude(esp_cor1)
+      linear_extrude(altura)
         corpo_base_2d();
-      // Cor 2: letras puras em cima — contorno de cor 1 visível à volta
-      translate([0, 0, esp_cor1])
-        linear_extrude(esp_cor2)
+      // Cor 2: letras — contorno de cor 1 visível à volta
+      translate([0, 0, altura])
+        linear_extrude(altura)
           texto_2d();
 
     } else {
       // Cor 1: base larga com aba
-      linear_extrude(esp_cor1)
+      linear_extrude(altura)
         corpo_base_2d();
       // Cor 2: cloud intermédio — anel de cor 1 visível à volta
-      translate([0, 0, esp_cor1])
-        linear_extrude(esp_cor2)
+      translate([0, 0, altura])
+        linear_extrude(altura)
           cloud_2d(offset_cor2, fn_cor2);
-      // Cor 3: letras puras — anel de cor 2 visível à volta
-      translate([0, 0, esp_cor1 + esp_cor2])
-        linear_extrude(esp_cor3)
+      // Cor 3: letras — anel de cor 2 visível à volta
+      translate([0, 0, altura * 2])
+        linear_extrude(altura)
           texto_2d();
     }
 
