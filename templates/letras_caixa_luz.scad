@@ -70,17 +70,29 @@ module parte1_base() {
   }
 }
 
-// ── PARTE 2 — Tampa difusora com nome escavado ─────────────────
-// Fica por cima da base, cobre o canal LED.
-// O nome fica escavado prof_nome mm → as letras do nome encaixam aqui.
+// ── PARTE 2 — Tampa (caixa idêntica à base, encaixa por cima) ──
+// Mesmas paredes que a base, fundo ABERTO (encosta na base por baixo),
+// topo FECHADO com o nome escavado.
+// A luz do LED sobe pelo interior da letra e sai pelos recortes do nome.
 
 module parte2_tampa() {
   difference() {
-    linear_extrude(esp_tampa)
-      exterior_tampa_2d();
-    // Escavar o nome na face superior (deixa esp_tampa - prof_nome de fundo)
-    translate([0, 0, esp_tampa - prof_nome])
-      linear_extrude(prof_nome + 1)
+    union() {
+      // Paredes laterais: mesma secção transversal da base, ligeiramente
+      // menores (folga) para encaixar dentro das paredes exteriores da base.
+      linear_extrude(alt_canal)
+        difference() {
+          exterior_tampa_2d();   // outer: letra + (esp_parede - folga)
+          letra_2d();            // inner: oco em forma de letra (canal de luz)
+        }
+      // Topo sólido (face visível com o nome)
+      translate([0, 0, alt_canal])
+        linear_extrude(esp_fundo)
+          exterior_tampa_2d();
+    }
+    // Nome escavado no topo: as letras coloridas encaixam aqui
+    translate([0, 0, alt_canal - prof_nome])
+      linear_extrude(prof_nome + esp_fundo + 1)
         nome_2d();
   }
 }
