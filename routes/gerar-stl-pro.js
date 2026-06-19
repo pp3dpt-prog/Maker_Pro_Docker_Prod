@@ -101,8 +101,8 @@ function sanitizeParams(raw) {
         throw e;
       }
       // Só aceita caminhos dentro de "uploads/"
-      if (!val.startsWith('uploads/')) {
-        const e = new Error('image_path deve começar com "uploads/".');
+      if (!val.startsWith('uploads/') && !val.startsWith('Images/')) {
+        const e = new Error('image_path deve começar com "uploads/" ou "Images/".');
         e.status = 400;
         throw e;
       }
@@ -142,7 +142,11 @@ function sanitizeParams(raw) {
   if (out.tamanho  && !out.fontSize) out.fontSize = out.tamanho;
 
   // Font mapping: nome abreviado → nome completo OpenSCAD
-  const FONT_MAP = { Aladin: 'Aladin', Amarante: 'Amarante', Benne: 'Benne', Baloo2: 'Baloo 2' };
+  const FONT_MAP = {
+    Aladin: 'Aladin', Amarante: 'Amarante', Benne: 'Benne', Baloo2: 'Baloo 2',
+    Sacramento: 'Sacramento', Pacifico: 'Pacifico', Lobster: 'Lobster',
+    Arial: 'Arial', Liberation: 'Liberation Sans',
+  };
   if (out.fonte && FONT_MAP[out.fonte]) out.fonte = FONT_MAP[out.fonte];
 
   return out;
@@ -257,6 +261,58 @@ export function buildHueforgeTxt({ numCores, layerHeight, espessuraBase, alturaR
   return L.join('\r\n');
 }
 
+/** Guia de mudança de cor para porta-chaves com nome multicor. */
+function buildColorChangeTxt({ nome, numCores, layerHeight, espCor1, espCor2, espCor3 }) {
+  const lh = layerHeight;
+  const l1 = Math.ceil(espCor1 / lh);
+  const l2 = Math.ceil(espCor2 / lh);
+  const l3 = Math.ceil(espCor3 / lh);
+
+  const L = [
+    `=== Porta-chaves "${nome}" — Guia de Mudança de Cor ===`,
+    '',
+    `Altura de camada : ${lh} mm`,
+    `Número de cores  : ${numCores}`,
+    '',
+    '─────────────────────────────────────────────────',
+    '',
+    'COR 1  (base / cloud exterior — carrega antes de iniciar)',
+    `  → Camadas 1 até ${l1}   (0 mm → ${espCor1} mm)`,
+    '',
+  ];
+
+  if (numCores >= 2) {
+    const inicio2 = l1 + 1;
+    const fim2    = l1 + l2;
+    L.push(`COR 2  (${numCores === 2 ? 'texto' : 'borda intermédia'})`);
+    L.push(`  → Para na camada ${inicio2}   (altura ≈ ${espCor1} mm)`);
+    L.push('  → Troca o filamento para a Cor 2 e retoma');
+    L.push(`  → Camadas ${inicio2} até ${fim2}   (${espCor1} mm → ${(espCor1 + espCor2).toFixed(1)} mm)`);
+    L.push('');
+  }
+
+  if (numCores >= 3) {
+    const inicio3 = l1 + l2 + 1;
+    const fim3    = l1 + l2 + l3;
+    const z3      = (espCor1 + espCor2).toFixed(1);
+    const z3end   = (espCor1 + espCor2 + espCor3).toFixed(1);
+    L.push('COR 3  (texto — camada final)');
+    L.push(`  → Para na camada ${inicio3}   (altura ≈ ${z3} mm)`);
+    L.push('  → Troca o filamento para a Cor 3 e retoma');
+    L.push(`  → Camadas ${inicio3} até ${fim3}   (${z3} mm → ${z3end} mm)`);
+    L.push('');
+  }
+
+  L.push('─────────────────────────────────────────────────');
+  L.push('');
+  L.push('DICAS:');
+  L.push('  • Usa "Color Change" / "Pause at Layer" (Bambu Studio, Orca, PrusaSlicer) ou M600.');
+  L.push('  • As camadas podem variar ±1 conforme o slicer.');
+  L.push('  • Purga bem o filamento antigo antes de retomar.');
+
+  return L.join('\n');
+}
+
 /** Upload para Supabase Storage. Devolve URL assinada ou null. */
 async function uploadFile(bucket, storagePath, buffer, mimeType) {
   const { error } = await supabase.storage
@@ -323,8 +379,11 @@ export async function gerarStlPro(req, res) {
       ? (design.qualidade_preview || 24)
       : (design.qualidade_final   || 100);
 
-    const isHueforge   = String(design.familia || '').toLowerCase() === 'hueforge';
-    const isImageBased = typeof params.image_path === 'string' && params.image_path.length > 0;
+    const familia       = String(design.familia || '').toLowerCase();
+    const isHueforge    = familia === 'hueforge';
+    const isMulticor    = familia === 'portachaves_nome_multicor';
+    const isImageBased  = typeof params.image_path === 'string' && params.image_path.length > 0;
+    const needsTxt      = isHueforge || isMulticor;
 
     // ── 5. Processar imagem (se existir) ─────────────────────────────────
     if (isImageBased) {
@@ -385,7 +444,7 @@ export async function gerarStlPro(req, res) {
 
       const response = { success: true, url: urlData?.signedUrl, cached: true, mode: renderMode };
 
-      if (isHueforge) {
+      if (needsTxt) {
         const txtFilename = `${produtoId}_${paramsHash}.txt`;
         if (await fileExists(BUCKET, folder, txtFilename)) {
           const { data: td } = await supabase.storage
@@ -432,22 +491,38 @@ export async function gerarStlPro(req, res) {
 
     const response = { success: true, url: stlUrl, cached: false, mode: renderMode };
 
-    // ── 10. HueForge TXT ─────────────────────────────────────────────────
-    if (isHueforge) {
-      const txtContent  = buildHueforgeTxt({
-        numCores     : Number(params.num_cores      ?? 4),
-        layerHeight  : Number(params.layer_height   ?? 0.16),
-        espessuraBase: Number(params.espessura_base ?? 1.0),
-        alturaRelevo : Number(params.altura_relevo  ?? 2.0),
-        larguraMm    : Number(params.largura_mm     ?? 100),
-        alturaMm     : Number(params.altura_mm      ?? 100),
-      });
+    // ── 10. Guia TXT (HueForge ou Multicor) ─────────────────────────────
+    if (needsTxt) {
+      let txtContent;
 
-      const txtFilename = `${produtoId}_${paramsHash}.txt`;
-      const txtStorage  = `${folder}/${txtFilename}`;
-      const txtUrl      = await uploadFile(BUCKET, txtStorage,
-                                           Buffer.from(txtContent, 'utf8'), 'text/plain');
-      if (txtUrl) response.txtUrl = txtUrl;
+      if (isHueforge) {
+        txtContent = buildHueforgeTxt({
+          numCores     : Number(params.num_cores      ?? 4),
+          layerHeight  : Number(params.layer_height   ?? 0.16),
+          espessuraBase: Number(params.espessura_base ?? 1.0),
+          alturaRelevo : Number(params.altura_relevo  ?? 2.0),
+          larguraMm    : Number(params.largura_mm     ?? 100),
+          alturaMm     : Number(params.altura_mm      ?? 100),
+        });
+      } else if (isMulticor) {
+        const nc = Number(params.num_cores ?? 3);
+        txtContent = buildColorChangeTxt({
+          nome      : String(params.nome ?? 'Nome'),
+          numCores  : nc,
+          layerHeight: Number(params.layer_height ?? 0.2),
+          espCor1   : Number(params.esp_cor1 ?? 2.0),
+          espCor2   : nc >= 2 ? Number(params.esp_cor2 ?? 1.5) : 0,
+          espCor3   : nc >= 3 ? Number(params.esp_cor3 ?? 2.0) : 0,
+        });
+      }
+
+      if (txtContent) {
+        const txtFilename = `${produtoId}_${paramsHash}.txt`;
+        const txtStorage  = `${folder}/${txtFilename}`;
+        const txtUrl      = await uploadFile(BUCKET, txtStorage,
+                                             Buffer.from(txtContent, 'utf8'), 'text/plain');
+        if (txtUrl) response.txtUrl = txtUrl;
+      }
     }
 
     return res.json(response);
