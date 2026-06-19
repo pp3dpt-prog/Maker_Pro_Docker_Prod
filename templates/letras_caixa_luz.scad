@@ -6,10 +6,11 @@
 //  modo = "nome"  → Letras do nome para encaixar no balde  (cor destaque)
 // ═══════════════════════════════════════════════════════════════
 
-letra          = is_undef(letra)          ? "S"          : letra;
-nome           = is_undef(nome)           ? "Sahil"      : nome;
-fonte          = is_undef(fonte)          ? "Sacramento" : fonte;
-modo           = is_undef(modo)           ? "corpo"      : modo;
+letra          = is_undef(letra)          ? "S"               : letra;
+nome           = is_undef(nome)           ? "Sahil"           : nome;
+fonte_letra    = is_undef(fonte_letra)    ? "Liberation Sans" : fonte_letra;
+fonte_nome     = is_undef(fonte_nome)     ? "Sacramento"      : fonte_nome;
+modo           = is_undef(modo)           ? "corpo"           : modo;
 
 l_tam          = is_undef(l_tam)          ? 80   : l_tam;
 n_tam          = is_undef(n_tam)          ? 18   : n_tam;
@@ -28,12 +29,12 @@ fundo_balde      = 0.8;
 // ── Formas 2D ─────────────────────────────────────────────────
 
 module letra_2d() {
-  text(letra, font=str(fonte,":style=Regular"), size=l_tam,
+  text(letra, font=str(fonte_letra,":style=Regular"), size=l_tam,
        halign="center", valign="center");
 }
 
 module nome_2d() {
-  text(nome, font=str(fonte,":style=Regular"), size=n_tam,
+  text(nome, font=str(fonte_nome,":style=Regular"), size=n_tam,
        halign="center", valign="center");
 }
 
@@ -68,12 +69,13 @@ module parte1_base() {
 // ── PARTE 2 — Tampa ───────────────────────────────────────────
 // Paredes em forma de letra (fundo aberto, encaixa sobre a base).
 // Topo fino (esp_topo ≤ 1.8 mm) para a luz difundir-se.
-// Balde pende do topo para dentro — CLIPPED à letra (nada sai fora).
+// Balde clipped à exterior_tampa_2d (vai até à parede exterior),
+// assim as paredes internas da letra não bloqueiam o acesso para colar.
 
 module parte2_tampa() {
   difference() {
     union() {
-      // Paredes laterais (mesma secção que a base, ligeiramente menores)
+      // Paredes laterais
       linear_extrude(alt_canal)
         difference() {
           exterior_tampa_2d();
@@ -85,30 +87,28 @@ module parte2_tampa() {
         linear_extrude(esp_topo)
           exterior_tampa_2d();
 
-      // Balde: paredes + fundo, clipped ao interior da letra
+      // Balde: vai até à parede exterior (corta paredes internas da letra)
       translate([0, 0, alt_canal - prof_nome])
         difference() {
-          // Paredes do balde, apenas dentro da letra
           intersection() {
             linear_extrude(prof_nome) balde_exterior_2d();
-            linear_extrude(prof_nome) letra_2d();
+            linear_extrude(prof_nome) exterior_tampa_2d();
           }
-          // Oco interior acima do fundo
           translate([0, 0, fundo_balde])
             linear_extrude(prof_nome)
               intersection() {
                 balde_interior_2d();
-                letra_2d();
+                exterior_tampa_2d();
               }
         }
     }
 
-    // Abertura no topo para inserir as letras — clipped à letra
+    // Abertura no topo — também até à parede exterior
     translate([0, 0, alt_canal - 1])
       linear_extrude(esp_topo + 2)
         intersection() {
           balde_interior_2d();
-          letra_2d();
+          exterior_tampa_2d();
         }
   }
 }
