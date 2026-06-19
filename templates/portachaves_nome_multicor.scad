@@ -13,17 +13,16 @@ esp_cor1    = is_undef(esp_cor1)    ? 2.0           : esp_cor1;
 esp_cor2    = is_undef(esp_cor2)    ? 1.5           : esp_cor2;
 esp_cor3    = is_undef(esp_cor3)    ? 2.0           : esp_cor3;
 
-// Expansão lateral (mm para fora das letras) de cada nível
-// offset maior = patamar mais largo e afastado das letras
-// offset menor = patamar mais colado ao contorno das letras
+// Expansão lateral (mm para fora das letras) de cada nível de cor
+// offset maior = patamar mais afastado das letras (mas mantém o contorno)
+// offset menor = patamar mais colado às letras
+// Cor 3 = letras puras (sem expansão — é o topo visível com as letras)
 offset_cor1 = is_undef(offset_cor1) ? 8             : offset_cor1;
 offset_cor2 = is_undef(offset_cor2) ? 4             : offset_cor2;
-offset_cor3 = is_undef(offset_cor3) ? 1             : offset_cor3;
 
 // Suavidade do cloud por nível (fn baixo = borda mais angular; alto = mais suave)
 fn_cor1 = 6;
-fn_cor2 = 12;
-fn_cor3 = 24;
+fn_cor2 = 14;
 
 // ── Argola ─────────────────────────────────────────────────────
 furo_r = 1.5;
@@ -94,10 +93,10 @@ difference() {
       // Cor 1: base larga com aba
       linear_extrude(esp_cor1)
         corpo_base_2d();
-      // Cor 2: cloud mais estreito em cima — contorno das letras visível
+      // Cor 2: letras puras em cima — contorno de cor 1 visível à volta
       translate([0, 0, esp_cor1])
         linear_extrude(esp_cor2)
-          cloud_2d(offset_cor2, fn_cor2);
+          texto_2d();
 
     } else {
       // Cor 1: base larga com aba
@@ -107,10 +106,10 @@ difference() {
       translate([0, 0, esp_cor1])
         linear_extrude(esp_cor2)
           cloud_2d(offset_cor2, fn_cor2);
-      // Cor 3: cloud estreito (quase colado às letras) — anel de cor 2 visível
+      // Cor 3: letras puras — anel de cor 2 visível à volta
       translate([0, 0, esp_cor1 + esp_cor2])
         linear_extrude(esp_cor3)
-          cloud_2d(offset_cor3, fn_cor3);
+          texto_2d();
     }
 
   }
