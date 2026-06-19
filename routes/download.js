@@ -271,6 +271,7 @@ export async function downloadStl(req, res) {
     const isHueforgeFamily = JS_FAMILIES_DL.includes(String(design.familia || '').toLowerCase());
     const isCaixa = design.familia === 'caixas';
     const isLetras = design.familia === 'letras-decorativas';
+    const isCaixaLuz = design.familia === 'letras-caixa-luz';
 
     if (isHueforgeFamily && typeof paramsNormalizados.image_path === 'string' && paramsNormalizados.image_path.startsWith('/')) {
       // HueForge: gerar STL com JS puro (imagem já processada acima)
@@ -353,6 +354,20 @@ export async function downloadStl(req, res) {
         files.push({ name: 'tampa.stl', path: tampaPath });
         console.log('✅ Tampa gerada:', fs.existsSync(tampaPath));
       }
+    } else if (isCaixaLuz) {
+      // Caixa de Luz com letra inicial — 3 partes: base LED, tampa difusora, letras do nome
+      const basePath = `${base}_base.stl`;
+      await gerarSTL({ scadTemplate: design.scad_template, params: { ...paramsNormalizados, modo: 'corpo' }, outFile: basePath });
+      files.push({ name: 'base_led.stl', path: basePath });
+
+      const tampaPath = `${base}_tampa.stl`;
+      await gerarSTL({ scadTemplate: design.scad_template, params: { ...paramsNormalizados, modo: 'tampa' }, outFile: tampaPath });
+      files.push({ name: 'tampa_difusora.stl', path: tampaPath });
+
+      const nomePath = `${base}_nome.stl`;
+      await gerarSTL({ scadTemplate: design.scad_template, params: { ...paramsNormalizados, modo: 'nome' }, outFile: nomePath });
+      files.push({ name: 'letras_nome.stl', path: nomePath });
+
     } else if (isLetras) {
       const letraPath = `${base}_letra.stl`;
       await gerarSTL({
