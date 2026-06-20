@@ -39,7 +39,8 @@ async function gerarSTL({ scadTemplate, params, outFile }) {
     .map(([k, v]) => `${k} = ${typeof v === 'string' ? `"${v}"` : v};`)
     .join('\n');
 
-  fs.writeFileSync(scadFile, `${vars}\n\n${scadTemplate}\n`);
+  // Template primeiro, vars depois — "last wins" no OpenSCAD garante que o modo injetado prevalece
+  fs.writeFileSync(scadFile, `${scadTemplate}\n\n${vars}\n`);
 
   await new Promise((resolve, reject) => {
     const p = spawn(OPENSCAD_BIN, ['-o', outFile, scadFile]);
