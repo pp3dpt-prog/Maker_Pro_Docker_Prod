@@ -176,11 +176,12 @@ export async function downloadStl(req, res) {
       if (imgErr || !imgData) throw new Error(`Erro ao descarregar imagem: ${imgErr?.message}`);
       await fsp.writeFile(rawPath, Buffer.from(await imgData.arrayBuffer()));
 
-      // Enquadrar (igual ao preview: ajuste/zoom/posição). 100px no lado maior.
+      // Enquadrar (igual ao preview: ajuste/zoom/posição). 300px no lado maior
+      // (ficheiro de download real — precisa de mais definição que o preview).
       const familiaImg = String(design.familia || '').toLowerCase();
       const rawImg = await Jimp.read(rawPath);
       const img = await frameImage(rawImg, {
-        targetLong: 100,
+        targetLong: 300,
         aspect: aspectForFamily(familiaImg, paramsNormalizados),
         fit: paramsNormalizados.img_ajuste ?? 'Esticar',
         zoom: paramsNormalizados.img_zoom,

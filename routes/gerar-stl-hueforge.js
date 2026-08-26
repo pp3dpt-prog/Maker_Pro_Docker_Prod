@@ -88,7 +88,7 @@ export async function gerarStlHueforge(req, res) {
     }
 
     const renderMode = String(mode || 'preview').toLowerCase() === 'preview' ? 'preview' : 'final';
-    const maxPx      = renderMode === 'preview' ? 60 : 120;
+    const maxPx      = renderMode === 'preview' ? 150 : 300;
 
     const numCores     = Math.max(2, Math.min(6, Number(rest.num_cores     ?? 4)));
     const layerHeight  = Number(rest.layer_height   ?? 0.16);
