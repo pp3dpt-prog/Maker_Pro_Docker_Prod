@@ -221,7 +221,12 @@ async function quantizeImage(inputPath, outputPath, numCores) {
 }
 
 /** Gera o guia TXT de mudança de filamento para HueForge. */
-export function buildHueforgeTxt({ numCores, layerHeight, espessuraBase, alturaRelevo, larguraMm, alturaMm }) {
+export function buildHueforgeTxt({ numCores, layerHeight, espessuraBase, alturaRelevo, larguraMm, alturaMm, coresDetectadas }) {
+  // coresDetectadas: array opcional de hex (#rrggbb), ordenado do mais escuro
+  // ao mais claro (mesma ordem das camadas) — vem do k-means em modo_cor.
+  // Sem isto (modo P&B), o guia fica genérico como antes.
+  const cor = (i) => coresDetectadas?.[i - 1] ? `  [${coresDetectadas[i - 1]}]` : '';
+
   const lh            = layerHeight;
   const layersBase    = Math.ceil(espessuraBase / lh);
   // A geometria quantiza em numCores NÍVEIS, ou seja numCores-1 SALTOS de altura
@@ -246,7 +251,7 @@ export function buildHueforgeTxt({ numCores, layerHeight, espessuraBase, alturaR
     '',
     sep,
     '',
-    `  COR 1  (mais escura - carrega antes de iniciar)`,
+    `  COR 1  (mais escura - carrega antes de iniciar)${cor(1)}`,
     `    -> Camadas 1 ate ${layersBase + layersPerClr - 1}`,
     '',
   ];
@@ -254,7 +259,7 @@ export function buildHueforgeTxt({ numCores, layerHeight, espessuraBase, alturaR
   for (let i = 2; i <= numCores; i++) {
     const changeAt = layersBase + (i - 2) * layersPerClr + layersPerClr;
     const heightMm = (changeAt * lh).toFixed(2);
-    L.push(`  COR ${i}${i === numCores ? '  (mais clara)' : ''}`);
+    L.push(`  COR ${i}${i === numCores ? '  (mais clara)' : ''}${cor(i)}`);
     L.push(`    -> Para na camada ${changeAt}  (altura ~ ${heightMm} mm)`);
     L.push(`    -> Troca o filamento e retoma`);
     if (i < numCores) L.push(`    -> Dura ate a camada ${changeAt + layersPerClr - 1}`);

@@ -259,7 +259,7 @@ export async function gerarStlHueforge(req, res) {
     const response = { success: true, url: stlUrl, cached: false, mode: renderMode, coresDetectadas };
 
     // Gerar TXT HueForge
-    const txtContent  = buildHueforgeTxt({ numCores, layerHeight, espessuraBase: espBase, alturaRelevo: altRelevo, larguraMm, alturaMm });
+    const txtContent  = buildHueforgeTxt({ numCores, layerHeight, espessuraBase: espBase, alturaRelevo: altRelevo, larguraMm, alturaMm, coresDetectadas });
     const txtFilename = `${produtoId}_hf_${paramsKey}.txt`;
     const txtUrl      = await uploadFile(`${folder}/${txtFilename}`, Buffer.from(txtContent, 'utf8'), 'text/plain');
     if (txtUrl) response.txtUrl = txtUrl;

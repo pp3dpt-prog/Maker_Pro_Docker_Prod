@@ -163,6 +163,7 @@ export async function downloadStl(req, res) {
 
     // Processar imagem se existir (HueForge e portachaves com imagem)
     const tempImageFiles = [];
+    let coresDetectadas = null; // preenchido abaixo em modo_cor; usado no .txt do HueForge mais à frente
     if (typeof paramsNormalizados.image_path === 'string' && paramsNormalizados.image_path.startsWith('uploads/')) {
       const imgUid = uuid();
       const rawPath  = path.join(TMP_DIR, `img_raw_${imgUid}.png`);
@@ -233,6 +234,9 @@ export async function downloadStl(req, res) {
         }
         const lum = ([r, g, b]) => 0.299*r + 0.587*g + 0.114*b;
         centers.sort((a, b) => lum(a) - lum(b));
+        coresDetectadas = centers.map(([r, g, b]) =>
+          '#' + [r, g, b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('')
+        );
         let pi = 0;
         img.scan(0, 0, iw, ih, function (x, y, idx) {
           const [r, g, b] = pixels[pi++];
@@ -331,6 +335,7 @@ export async function downloadStl(req, res) {
         alturaRelevo : Number(paramsNormalizados.altura_relevo  ?? 2.0),
         larguraMm   : Number(paramsNormalizados.largura_mm     ?? 100),
         alturaMm    : Number(paramsNormalizados.altura_mm      ?? 100),
+        coresDetectadas,
       });
       const txtPath = `${base}_hueforge.txt`;
       await fsp.writeFile(txtPath, txtContent, 'ascii');
