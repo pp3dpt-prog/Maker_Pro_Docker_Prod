@@ -306,14 +306,14 @@ export async function downloadStl(req, res) {
           largura: Number(paramsNormalizados.largura_mm ?? 150),
           altura:  Number(paramsNormalizados.altura_mm  ?? 150),
           espMax:  Number(paramsNormalizados.esp_max ?? 3.0),
-          espMin:  Number(paramsNormalizados.esp_min ?? 0.6) });
+          espMin:  Number(paramsNormalizados.esp_min ?? 0.8) });
       } else if (familiaLower === 'litofania-curva') {
         stlBuffer = generateLithophaneCurvedStl({ heightmap,
           alturaMm: Number(paramsNormalizados.altura_mm ?? 150),
           raio:     Number(paramsNormalizados.raio   ?? 50),
           angulo:   Number(paramsNormalizados.angulo ?? 270),
           espMax:   Number(paramsNormalizados.esp_max ?? 3.0),
-          espMin:   Number(paramsNormalizados.esp_min ?? 0.6) });
+          espMin:   Number(paramsNormalizados.esp_min ?? 0.8) });
       } else {
         stlBuffer = generateHueforgeStl({
           heightmap,
@@ -330,7 +330,7 @@ export async function downloadStl(req, res) {
       // Gerar TXT e incluir no ZIP
       const txtContent = buildHueforgeTxt({
         numCores    : Number(paramsNormalizados.num_cores      ?? 4),
-        layerHeight : Number(paramsNormalizados.layer_height   ?? 0.16),
+        layerHeight : Number(paramsNormalizados.layer_height   ?? 0.12),
         espessuraBase: Number(paramsNormalizados.espessura_base ?? 1.0),
         alturaRelevo : Number(paramsNormalizados.altura_relevo  ?? 2.0),
         larguraMm   : Number(paramsNormalizados.largura_mm     ?? 100),

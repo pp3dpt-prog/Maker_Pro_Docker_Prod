@@ -266,6 +266,23 @@ export function buildHueforgeTxt({ numCores, layerHeight, espessuraBase, alturaR
     L.push('');
   }
 
+  const RECOMENDADA_LH = 0.12;
+  L.push(sep);
+  L.push('');
+  L.push('  DEFINICOES ACONSELHADAS:');
+  L.push(`  * Altura de camada: ${RECOMENDADA_LH}mm dá o melhor equilíbrio detalhe/tempo.`);
+  if (Math.abs(lh - RECOMENDADA_LH) > 0.001) {
+    L.push(`    (este ficheiro foi calculado para ${lh}mm — ajusta o slicer para bater certo)`);
+  }
+  L.push('  * Filamento opaco normal chega — as cores aqui sao bandas solidas,');
+  L.push('    nao e preciso filamento translucido/calibrado como no HueForge classico.');
+  L.push('  * Infill 100% (ou perimetros suficientes p/ preencher a peca toda),');
+  L.push('    e uma peca fina do inicio ao fim, infill esparso cria falhas visiveis.');
+  if (layersPerClr < 4) {
+    L.push(`  * AVISO: cada banda de cor tem so ~${layersPerClr} camadas — fica pouco nitida.`);
+    L.push('    Sobe a altura do relevo ou reduz o numero de cores para bandas mais grossas.');
+  }
+  L.push('');
   L.push(sep);
   L.push('');
   L.push('  DICAS:');
@@ -515,7 +532,7 @@ export async function gerarStlPro(req, res) {
       if (isHueforge) {
         txtContent = buildHueforgeTxt({
           numCores     : Number(params.num_cores      ?? 4),
-          layerHeight  : Number(params.layer_height   ?? 0.16),
+          layerHeight  : Number(params.layer_height   ?? 0.12),
           espessuraBase: Number(params.espessura_base ?? 1.0),
           alturaRelevo : Number(params.altura_relevo  ?? 2.0),
           larguraMm    : Number(params.largura_mm     ?? 100),

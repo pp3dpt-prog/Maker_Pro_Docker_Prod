@@ -91,7 +91,7 @@ export async function gerarStlHueforge(req, res) {
     const maxPx      = renderMode === 'preview' ? 150 : 300;
 
     const numCores     = Math.max(2, Math.min(6, Number(rest.num_cores     ?? 4)));
-    const layerHeight  = Number(rest.layer_height   ?? 0.16);
+    const layerHeight  = Number(rest.layer_height   ?? 0.12);
     const espBase      = Number(rest.espessura_base ?? 1.0);
     const altRelevo    = Number(rest.altura_relevo  ?? 2.0);
     const larguraMm    = Number(rest.largura_mm     ?? 100);
@@ -245,11 +245,11 @@ export async function gerarStlHueforge(req, res) {
       });
     } else if (familia === 'litofania') {
       stlBuffer = generateLithophaneFlatStl({ heightmap, largura: larguraMm, altura: alturaMm,
-        espMax: Number(rest.esp_max ?? 3.0), espMin: Number(rest.esp_min ?? 0.6) });
+        espMax: Number(rest.esp_max ?? 3.0), espMin: Number(rest.esp_min ?? 0.8) });
     } else if (familia === 'litofania-curva') {
       stlBuffer = generateLithophaneCurvedStl({ heightmap, alturaMm,
         raio: Number(rest.raio ?? 50), angulo: Number(rest.angulo ?? 270),
-        espMax: Number(rest.esp_max ?? 3.0), espMin: Number(rest.esp_min ?? 0.6) });
+        espMax: Number(rest.esp_max ?? 3.0), espMin: Number(rest.esp_min ?? 0.8) });
     } else {
       stlBuffer = generateHueforgeStl({ heightmap, largura: larguraMm, altura: alturaMm, espBase, altRelevo });
     }
