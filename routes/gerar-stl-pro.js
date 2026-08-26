@@ -224,7 +224,11 @@ async function quantizeImage(inputPath, outputPath, numCores) {
 export function buildHueforgeTxt({ numCores, layerHeight, espessuraBase, alturaRelevo, larguraMm, alturaMm }) {
   const lh            = layerHeight;
   const layersBase    = Math.ceil(espessuraBase / lh);
-  const layersPerClr  = Math.max(1, Math.ceil((alturaRelevo / numCores) / lh));
+  // A geometria quantiza em numCores NÍVEIS, ou seja numCores-1 SALTOS de altura
+  // (ex: 4 cores = 4 níveis = 3 saltos) — tem de dividir por (numCores-1), não
+  // por numCores, senão as alturas de troca de cor não batem com o relevo real.
+  const niveis        = Math.max(1, numCores - 1);
+  const layersPerClr  = Math.max(1, Math.ceil((alturaRelevo / niveis) / lh));
   const totalLayers   = layersBase + (numCores - 1) * layersPerClr;
   const sep           = '='.repeat(49);
 
