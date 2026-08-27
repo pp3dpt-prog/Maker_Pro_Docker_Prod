@@ -8,7 +8,7 @@ import { createClient } from '@supabase/supabase-js';
 import { PassThrough } from 'stream';
 import Jimp from 'jimp';
 import { generateHueforgeStl, generateBookmarkStl, generateLithophaneFlatStl, generateLithophaneCurvedStl } from '../app/hueforge-stl.js';
-import { frameImage, aspectForFamily, targetLongPxForFamily } from '../app/image-proc.js';
+import { frameImage, aspectForFamily, targetLongPxForFamily, heightFracBeerLambert } from '../app/image-proc.js';
 import { buildHueforgeTxt }   from './gerar-stl-pro.js';
 
 const OPENSCAD_BIN = 'openscad';
@@ -238,26 +238,24 @@ export async function downloadStl(req, res) {
         coresDetectadas = centers.map(([r, g, b]) =>
           '#' + [r, g, b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('')
         );
-        let pi = 0;
+        // Altura contínua por translucidez (Beer-Lambert), não por cluster
+        // discreto — coresDetectadas diz que filamento carregar em cada
+        // banda; a luminância do próprio pixel decide a altura dentro da
+        // banda, dando transição suave em vez de patamar plano.
         img.scan(0, 0, iw, ih, function (x, y, idx) {
-          const [r, g, b] = pixels[pi++];
-          let best = 0, bestD = Infinity;
-          for (let i = 0; i < n; i++) {
-            const d = (r-centers[i][0])**2 + (g-centers[i][1])**2 + (b-centers[i][2])**2;
-            if (d < bestD) { bestD = d; best = i; }
-          }
-          const q = n === 1 ? 0 : Math.round(best / (n - 1) * 255);
+          const r = this.bitmap.data[idx], g = this.bitmap.data[idx+1], b = this.bitmap.data[idx+2];
+          const luminancia = 0.299*r + 0.587*g + 0.114*b;
+          const q = Math.round(heightFracBeerLambert(luminancia, n) * 255);
           this.bitmap.data[idx] = this.bitmap.data[idx+1] = this.bitmap.data[idx+2] = q;
         });
       } else {
-        // grayscale + auto-contraste: imagens de baixo contraste deixam de
-        // sair todas no mesmo nível (relevo plano).
+        // grayscale + auto-contraste + altura contínua: imagens de baixo
+        // contraste deixam de sair todas no mesmo nível (relevo plano).
         img.grayscale();
         img.normalize();
         img.scan(0, 0, iw, ih, function (x, y, idx) {
-          const gray  = this.bitmap.data[idx];
-          const level = Math.min(Math.floor(gray / 256 * n), n - 1);
-          const q     = n === 1 ? 0 : Math.round(level / (n - 1) * 255);
+          const gray = this.bitmap.data[idx];
+          const q    = Math.round(heightFracBeerLambert(gray, n) * 255);
           this.bitmap.data[idx] = this.bitmap.data[idx+1] = this.bitmap.data[idx+2] = q;
         });
       }

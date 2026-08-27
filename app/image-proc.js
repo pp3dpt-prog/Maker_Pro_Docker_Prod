@@ -96,6 +96,43 @@ export function targetLongPxForFamily(familia, p, { pxPerMm = 5, maxGridPx = 600
 }
 
 /**
+ * Altura contínua (0..1) para uma luminância, usando o modelo ótico real de
+ * transmissão por translucidez (Beer-Lambert) em vez de bandas planas.
+ *
+ * Como o HueForge/Kromacut "a sério": em vez da altura saltar entre n níveis
+ * fixos (patamares planos = "degraus" visíveis na peça), a altura varia de
+ * forma contínua DENTRO de cada banda de cor, seguindo a curva de transmissão
+ * `opacidade(t) = 1 - 10^(-t/TD)` — perto do limite da banda a cor de cima
+ * já domina quase por completo; no início da banda a cor de baixo ainda
+ * transparece. TD (transmission distance) é a distância a que um filamento
+ * deixa de ser translúcido — quanto menor, mais depressa a transição acontece.
+ *
+ * @param {number} luminancia255   0 (mais escuro) .. 255 (mais claro)
+ * @param {number} numCores        nº de filamentos/níveis (>=2)
+ * @param {number} [tdFraction]    TD como fração da altura de uma banda.
+ *                                 Default 0.9 ≈ TD real de PLA comum (~0.5-0.8mm)
+ *                                 para a banda default (2mm/4 cores ≈ 0.67mm).
+ *                                 SEM calibração real do filamento — é uma
+ *                                 aproximação razoável, não um valor medido.
+ *                                 Ajustar depois de um teste de impressão real.
+ * @returns {number} altura normalizada 0..1
+ */
+export function heightFracBeerLambert(luminancia255, numCores, tdFraction = 0.9) {
+  const n = Math.max(2, numCores);
+  const bandHeight = 1 / (n - 1);
+  const pos   = Math.min(n - 1, Math.max(0, (luminancia255 / 255) * (n - 1)));
+  const band  = Math.min(n - 2, Math.floor(pos));
+  const frac  = pos - band; // 0..1 posição dentro da banda
+
+  const td = tdFraction * bandHeight;
+  const maxOpacity    = 1 - Math.pow(10, -bandHeight / td);
+  const targetOpacity = Math.min(0.999, frac * maxOpacity);
+  const t = -td * Math.log10(1 - targetOpacity); // espessura dentro da banda
+
+  return band * bandHeight + Math.min(bandHeight, t);
+}
+
+/**
  * Rácio largura/altura alvo (W/H) consoante a família do produto.
  * Mantém as células da grelha quadradas (sem distorção da imagem).
  */
