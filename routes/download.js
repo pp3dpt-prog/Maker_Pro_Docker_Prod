@@ -8,7 +8,7 @@ import { createClient } from '@supabase/supabase-js';
 import { PassThrough } from 'stream';
 import Jimp from 'jimp';
 import { generateHueforgeStl, generateBookmarkStl, generateLithophaneFlatStl, generateLithophaneCurvedStl } from '../app/hueforge-stl.js';
-import { frameImage, aspectForFamily } from '../app/image-proc.js';
+import { frameImage, aspectForFamily, targetLongPxForFamily } from '../app/image-proc.js';
 import { buildHueforgeTxt }   from './gerar-stl-pro.js';
 
 const OPENSCAD_BIN = 'openscad';
@@ -177,12 +177,13 @@ export async function downloadStl(req, res) {
       if (imgErr || !imgData) throw new Error(`Erro ao descarregar imagem: ${imgErr?.message}`);
       await fsp.writeFile(rawPath, Buffer.from(await imgData.arrayBuffer()));
 
-      // Enquadrar (igual ao preview: ajuste/zoom/posição). 300px no lado maior
-      // (ficheiro de download real — precisa de mais definição que o preview).
+      // Enquadrar (igual ao preview: ajuste/zoom/posição). Ficheiro de
+      // download real — grelha escala com o tamanho físico da peça (mm),
+      // ver targetLongPxForFamily em image-proc.js.
       const familiaImg = String(design.familia || '').toLowerCase();
       const rawImg = await Jimp.read(rawPath);
       const img = await frameImage(rawImg, {
-        targetLong: 300,
+        targetLong: targetLongPxForFamily(familiaImg, paramsNormalizados),
         aspect: aspectForFamily(familiaImg, paramsNormalizados),
         fit: paramsNormalizados.img_ajuste ?? 'Esticar',
         zoom: paramsNormalizados.img_zoom,

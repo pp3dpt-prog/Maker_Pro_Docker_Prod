@@ -70,6 +70,32 @@ export async function frameImage(img, {
 }
 
 /**
+ * Píxeis-alvo do lado maior da grelha de heightmap, calculados a partir do
+ * tamanho REAL da peça (mm) em vez de um número fixo — assim uma peça pequena
+ * não fica com ficheiro gigante desnecessário, e uma peça grande não fica sem
+ * detalhe. pxPerMm=5 (0.2mm/px) já está perto do limite útil de uma FDM com
+ * bocal de 0.4mm — passar muito disso não fica mais nítido na peça impressa,
+ * só faz o STL crescer. maxGridPx protege contra ficheiros descontrolados em
+ * peças grandes.
+ */
+export function targetLongPxForFamily(familia, p, { pxPerMm = 5, maxGridPx = 600, minGridPx = 60 } = {}) {
+  const f = String(familia || '').toLowerCase();
+  let longoMm;
+  if (f === 'litofania-curva') {
+    const raio   = Number(p.raio   ?? 50);
+    const angulo = Number(p.angulo ?? 270);
+    const altura = Number(p.altura_mm ?? 150);
+    const arco   = raio * (angulo * Math.PI / 180);
+    longoMm = Math.max(arco, altura);
+  } else if (f === 'portachaves') {
+    longoMm = Math.max(Number(p.largura ?? p.largura_mm ?? 55), Number(p.altura ?? p.altura_mm ?? 35));
+  } else {
+    longoMm = Math.max(Number(p.largura_mm ?? 100), Number(p.altura_mm ?? 100));
+  }
+  return Math.min(maxGridPx, Math.max(minGridPx, Math.round(longoMm * pxPerMm)));
+}
+
+/**
  * Rácio largura/altura alvo (W/H) consoante a família do produto.
  * Mantém as células da grelha quadradas (sem distorção da imagem).
  */

@@ -16,7 +16,7 @@ import { dirname }       from 'path';
 import Jimp from 'jimp';
 
 import { generateHueforgeStl, generateBookmarkStl, generateLithophaneFlatStl, generateLithophaneCurvedStl } from '../app/hueforge-stl.js';
-import { frameImage, aspectForFamily } from '../app/image-proc.js';
+import { frameImage, aspectForFamily, targetLongPxForFamily } from '../app/image-proc.js';
 import { gerarStlPro, buildHueforgeTxt } from './gerar-stl-pro.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -88,7 +88,9 @@ export async function gerarStlHueforge(req, res) {
     }
 
     const renderMode = String(mode || 'preview').toLowerCase() === 'preview' ? 'preview' : 'final';
-    const maxPx      = renderMode === 'preview' ? 150 : 300;
+    // Preview fica leve e fixo (só visualização no ecrã). Final escala com o
+    // tamanho real da peça em mm — ver targetLongPxForFamily em image-proc.js.
+    const maxPx      = renderMode === 'preview' ? 150 : targetLongPxForFamily(familia, rest);
 
     const numCores     = Math.max(2, Math.min(6, Number(rest.num_cores     ?? 4)));
     const layerHeight  = Number(rest.layer_height   ?? 0.12);
