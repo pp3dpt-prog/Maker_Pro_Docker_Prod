@@ -1,10 +1,19 @@
 FROM node:20-bullseye-slim
 
 # 1. Instalar OpenSCAD e utilitários de fontes
+# fonts-liberation/fonts-dejavu-core/fonts-urw-base35/fonts-ubuntu: fontes de
+# "sistema" referenciadas no template Letras Decorativas (Liberation Sans/Serif,
+# DejaVu Serif, URW Chancery L, Ubuntu) — sem estes pacotes o OpenSCAD faz
+# fallback silencioso para outra fonte quando o nome pedido não é encontrado,
+# fazendo com que todas as opções de fonte saiam iguais no STL final.
 RUN apt-get update && apt-get install -y \
     openscad \
     fontconfig \
     imagemagick \
+    fonts-liberation \
+    fonts-dejavu-core \
+    fonts-urw-base35 \
+    fonts-ubuntu \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -30,7 +39,10 @@ RUN mkdir -p /usr/share/fonts/truetype/custom && \
 # 6. LOG DE VERIFICAÇÃO (Para veres no Build Log do Render)
 RUN echo "--- FONTES DETECTADAS NO SISTEMA (families) ---" && \
     fc-list : family | sort -u | grep -iE "Aladin|Amarante|Benne|Baloo|Anton|Chewy|Gloria|Lobster|Luckiest|Oswald|Pacifico|Press Start|Racing|Sigmar" || \
-    echo "AVISO: Algumas fontes não encontradas!"
+    echo "AVISO: Algumas fontes não encontradas!" && \
+    echo "--- FONTES DE SISTEMA (Letras Decorativas) ---" && \
+    fc-list : family | sort -u | grep -iE "Liberation Sans|Liberation Serif|DejaVu Serif|URW Chancery|Ubuntu" || \
+    echo "AVISO: Fontes de sistema (Liberation/DejaVu/URW Chancery/Ubuntu) não encontradas!"
 
 EXPOSE 10000
 
