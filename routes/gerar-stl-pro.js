@@ -15,6 +15,7 @@ import { v4 as uuid }  from 'uuid';
 import { createClient } from '@supabase/supabase-js';
 import { fileURLToPath } from 'url';
 import { dirname }       from 'path';
+import { aplicarAjusteTexto } from '../lib/textFit.js';
 
 // Jimp é CommonJS — compatível com ESM em Node 20
 import Jimp from 'jimp';
@@ -395,7 +396,7 @@ export async function gerarStlPro(req, res) {
     // 4. Design
     const { data: design, error: dErr } = await supabase
       .from(DESIGNS_TABLE)
-      .select('id, familia, scad_template, qualidade_preview, qualidade_final')
+      .select('id, familia, scad_template, generation_schema, qualidade_preview, qualidade_final')
       .eq('id', String(produtoId))
       .maybeSingle();
 
@@ -407,6 +408,11 @@ export async function gerarStlPro(req, res) {
     if (!templateText) {
       return res.status(500).json({ error: 'Design sem scad_template definido.' });
     }
+
+    // Factores esc_* de ajuste do texto à largura útil (só designs com
+    // generation_schema.ajuste_texto; os restantes não são afectados).
+    // Tem de correr antes do hash, para a cache distinguir os valores.
+    aplicarAjusteTexto(design.generation_schema, params);
 
     const renderMode = String(mode || 'preview').toLowerCase() === 'preview' ? 'preview' : 'final';
     const qualityFn  = renderMode === 'preview'

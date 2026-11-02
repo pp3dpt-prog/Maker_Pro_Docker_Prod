@@ -4,6 +4,8 @@ import path from 'path';
 import { spawn } from 'child_process';
 import { v4 as uuid } from 'uuid';
 import { createClient } from '@supabase/supabase-js';
+import { scadVars } from '../lib/scad.js';
+import { aplicarAjusteTexto } from '../lib/textFit.js';
 
 const router = express.Router();
 
@@ -29,7 +31,7 @@ router.post('/', async (req, res) => {
 
     const { data: design, error } = await supabase
       .from('prod_designs')
-      .select('scad_template')
+      .select('scad_template, generation_schema')
       .eq('id', design_id)
       .single();
 
@@ -48,12 +50,12 @@ router.post('/', async (req, res) => {
       tem_tampa: params.tem_tampa ? 1 : 0,
     };
 
-    const vars = Object.entries(paramsNormalizados)
-      .map(([k, v]) => {
-        if (typeof v === 'string') return `${k} = "${v}";`;
-        return `${k} = ${v};`;
-      })
-      .join('\n');
+    // Factores esc_* de ajuste do texto (só designs com generation_schema.ajuste_texto)
+    aplicarAjusteTexto(design.generation_schema, paramsNormalizados);
+
+    // scadVars escapa aspas/barras e valida as chaves (antes, um nome com `"`
+    // partia o ficheiro ou permitia injectar código SCAD).
+    const vars = scadVars(paramsNormalizados);
 
     const scadContent = `${vars}\nmodo = "preview";\n\n${design.scad_template}\n`;
       console.log('--- SCAD PREVIEW ---');

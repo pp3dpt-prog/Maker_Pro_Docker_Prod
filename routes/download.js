@@ -10,6 +10,8 @@ import Jimp from 'jimp';
 import { generateHueforgeStl, generateBookmarkStl, generateLithophaneFlatStl, generateLithophaneCurvedStl } from '../app/hueforge-stl.js';
 import { frameImage, aspectForFamily, targetLongPxForFamily, heightFracBeerLambert } from '../app/image-proc.js';
 import { buildHueforgeTxt }   from './gerar-stl-pro.js';
+import { scadVars }           from '../lib/scad.js';
+import { aplicarAjusteTexto } from '../lib/textFit.js';
 
 const OPENSCAD_BIN = 'openscad';
 const TMP_DIR = path.join(process.cwd(), 'tmp');
@@ -35,9 +37,9 @@ async function getUser(req) {
 async function gerarSTL({ scadTemplate, params, outFile }) {
   const scadFile = outFile.replace('.stl', '.scad');
 
-  const vars = Object.entries(params)
-    .map(([k, v]) => `${k} = ${typeof v === 'string' ? `"${v}"` : v};`)
-    .join('\n');
+  // scadVars escapa aspas/barras e valida as chaves (antes, um nome com `"`
+  // partia o ficheiro ou permitia injectar código SCAD).
+  const vars = scadVars(params);
 
   // Template primeiro, vars depois — "last wins" no OpenSCAD garante que o modo injetado prevalece
   fs.writeFileSync(scadFile, `${scadTemplate}\n\n${vars}\n`);
@@ -130,7 +132,7 @@ export async function downloadStl(req, res) {
     // Buscar design
     const { data: design, error: designError } = await supabase
       .from('prod_designs')
-      .select('scad_template, nome, familia, acesso_maker, requer_licenca_comercial')
+      .select('scad_template, generation_schema, nome, familia, acesso_maker, requer_licenca_comercial')
       .eq('id', design_id)
       .single();
 
@@ -160,6 +162,9 @@ export async function downloadStl(req, res) {
       ...params,
       tem_tampa: params.tem_tampa ? 1 : 0,
     };
+
+    // Factores esc_* de ajuste do texto (só designs com generation_schema.ajuste_texto)
+    aplicarAjusteTexto(design.generation_schema, paramsNormalizados);
 
     // Processar imagem se existir (HueForge e portachaves com imagem)
     const tempImageFiles = [];
