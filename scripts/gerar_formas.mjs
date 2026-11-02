@@ -18,7 +18,7 @@ const ClipperLib = require('clipper-lib');
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const S = 1000;                 // clipper trabalha com inteiros
-const ESC = [0.7, 1, 1.5];     // extremos dos sliders de dimensão (70–150 %)
+const ESC = [0.5, 1, 2];        // gama de escala permitida às dimensões manuais (50–200 % da forma base)
 const BORDA = 2.5;              // = borda_larg do .scad
 
 // ── primitivas (devolvem caminhos clipper) ─────────────────────────────────
@@ -141,7 +141,7 @@ for (const d of DEF) {
   const a = { w: 18, r: 4, ybaseDe: 2, dhy: 6, ...(d.aba || {}) };
   const dtopo = a.r === 4 ? 6 : a.r;            // do centro do furo ao topo da aba
   // recuo da aba para dentro do corpo: o mínimo (>= ybaseDe) com que assenta em toda a gama
-  // de escalas dos sliders (70–150 %), para que a aba nunca fique solta
+  // de escalas dos sliders (50–200 %), para que a aba nunca fique solta
   const assenta = (de) => !(a.r * 2 < a.w) || ESC.every((sx) => ESC.every((sy) => {
     const sp = pts.map(([x, y]) => [x * sx, y * sy]);
     return [d.cx * sx - a.w / 2 + 0.5, d.cx * sx + a.w / 2 - 0.5].every((x) => dentro(sp, x, topo * sy - de + 0.2));
@@ -154,6 +154,7 @@ for (const d of DEF) {
 
   formas.push({
     nome: d.nome, cx: d.cx, cy: d.cy, util: d.util, topo: Math.round(topo * 100) / 100,
+    bw: Math.round((Math.max(...xs) - Math.min(...xs)) * 100) / 100, bh: Math.round((Math.max(...ys) - Math.min(...ys)) * 100) / 100,
     aba, bbox: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)],
     outer: pts,
   });
@@ -165,11 +166,11 @@ fs.writeFileSync(path.join(ROOT, 'lib/formasEtiqueta.json'), JSON.stringify({ bo
 const num = (n) => String(n);
 const lista = (pts) => '[' + pts.map(([x, y]) => `[${num(x)},${num(y)}]`).join(',') + ']';
 const scadFormas = formas.map((f) =>
-  `  ["${f.nome}", ${f.cx}, ${f.cy}, ${f.topo}, ${f.aba.w}, ${f.aba.r}, ${f.aba.de}, ${f.aba.dhy}, ${f.aba.dtopo},\n` +
+  `  ["${f.nome}", ${f.cx}, ${f.cy}, ${f.topo}, ${f.bw}, ${f.bh}, ${f.aba.w}, ${f.aba.r}, ${f.aba.de}, ${f.aba.dhy}, ${f.aba.dtopo},\n` +
   `   ${lista(f.outer)}]`).join(',\n');
 const bloco = `// @@FORMAS-BEGIN (gerado por scripts/gerar_formas.mjs — não editar à mão)
-// [nome, cx, cy, topo_em_cx, aba_w, aba_r, aba_recuo, furo_acima_topo, aba_acima_furo, contorno]
-// (as escalas larg_pct/alt_pct multiplicam x e y; a borda é calculada no OpenSCAD com offset)
+// [nome, cx, cy, topo_em_cx, largura_base, altura_base, aba_w, aba_r, aba_recuo, furo_acima_topo, aba_acima_furo, contorno]
+// (largura_mm/altura_mm escalam x e y em relação a largura_base/altura_base; a borda é calculada no OpenSCAD com offset)
 FORMAS = [
 ${scadFormas}
 ];
@@ -192,17 +193,21 @@ sql = sql.replace(/(generation_schema = \$json\$)([\s\S]*?)(\$json\$::jsonb)/, (
     ui: { label: 'Forma', widget: 'select', options: formas.map((f) => f.nome) },
     order: 4, default: 'Retangular',
   };
-  const pct = (label, order) => ({
-    ui: { label, widget: 'slider', step: 5 }, min: 70, max: 150, unit: '%', order, default: 100,
+  const medida = (label, order) => ({
+    ui: { label, widget: 'number', step: 1, placeholder: 'auto (tamanho da forma)' },
+    min: 30, max: 250, unit: 'mm', order, default: '',
   });
-  params.larg_pct = pct('Largura da placa (%)', 5);
-  params.alt_pct = pct('Altura da placa (%)', 6);
+  delete params.larg_pct; delete params.alt_pct; delete schema.ajuste_texto.escala_largura; // versões anteriores
+  params.largura_mm = medida('Largura da placa', 5);
+  params.altura_mm = medida('Altura da placa', 6);
   params.fontSize.order = 7;
   params.fonte.order = 8;
   // mantém a ordem das chaves legível
   const ordenado = Object.fromEntries(Object.entries(params).sort((x, y) => (x[1].order ?? 0) - (y[1].order ?? 0)));
   schema.parameters = ordenado;
-  schema.ajuste_texto.escala_largura = 'larg_pct';   // a largura útil acompanha a largura da placa
+  // a largura útil acompanha a largura da placa: factor = largura_mm / largura_base da forma
+  schema.ajuste_texto.largura_mm_param = 'largura_mm';
+  schema.ajuste_texto.largura_base_por_forma = Object.fromEntries(formas.map((f) => [f.nome, f.bw]));
   schema.ajuste_texto.largura_por_forma = Object.fromEntries(formas.map((f) => [f.nome, f.util]));
   return a + JSON.stringify(schema, null, 2) + c;
 });
