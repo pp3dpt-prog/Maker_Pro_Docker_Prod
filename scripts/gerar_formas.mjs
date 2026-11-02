@@ -18,6 +18,7 @@ const ClipperLib = require('clipper-lib');
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const S = 1000;                 // clipper trabalha com inteiros
+const ESC = [0.5, 1, 2];        // gama de escala permitida às dimensões manuais (50–200 % da forma base)
 const BORDA = 2.5;              // = borda_larg do .scad
 
 // ── primitivas (devolvem caminhos clipper) ─────────────────────────────────
@@ -111,7 +112,7 @@ const DEF = [
     caminhos: [circulo(32, 32, 32, 128)], aba: { ybaseDe: 6 } },
   { nome: 'Nuvem', cx: 42.5, cy: 22, util: 62,
     caminhos: [rrect(0, 0, 85, 24, 12), circulo(22, 27, 15), circulo(42.5, 32, 18), circulo(65, 27, 15)],
-    aba: { ybaseDe: 6 } },
+    aba: { ybaseDe: 10 } },
   { nome: 'Mochila', cx: 42.5, cy: 24, util: 52,
     caminhos: [rrect(12, 12, 61, 38, 19), rrect(12, 0, 61, 30, 9), rrect(1, 3, 15, 24, 6), rrect(69, 3, 15, 24, 6)],
     aba: { ybaseDe: 4 } },
@@ -133,25 +134,29 @@ for (const d of DEF) {
   const exterior = u.filter((p) => area(p) > 0);
   if (exterior.length !== 1 || u.length !== 1) throw new Error(`${d.nome}: esperava 1 contorno sem buracos, veio ${u.length}`);
   let outer = caminhoCCW(exterior[0]);
-  const inner = offset([outer], -BORDA).map(caminhoCCW).filter((p) => Math.abs(area(p)) > 5 * S * S);
 
   const pts = paraPts(outer);
   const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
   const topo = yTopo(pts, d.cx);
   const a = { w: 18, r: 4, ybaseDe: 2, dhy: 6, ...(d.aba || {}) };
-  const ybase = Math.round((topo - a.ybaseDe) * 100) / 100;
-  const hy = Math.round((topo + a.dhy) * 100) / 100;
-  const ytopo = Math.round((hy + (a.r === 4 ? 6 : a.r)) * 100) / 100;
-  // os dois cantos inferiores da aba têm de assentar no corpo
-  if (a.r * 2 < a.w) for (const x of [d.cx - a.w / 2 + 0.5, d.cx + a.w / 2 - 0.5])
-    if (!dentro(pts, x, ybase + 0.2)) throw new Error(`${d.nome}: a aba não assenta no corpo (x=${x}, y=${ybase})`);
-  if (ytopo - ybase < 2 * a.r) throw new Error(`${d.nome}: aba demasiado baixa para r=${a.r}`);
+  const dtopo = a.r === 4 ? 6 : a.r;            // do centro do furo ao topo da aba
+  // recuo da aba para dentro do corpo: o mínimo (>= ybaseDe) com que assenta em toda a gama
+  // de escalas dos sliders (50–200 %), para que a aba nunca fique solta
+  const assenta = (de) => !(a.r * 2 < a.w) || ESC.every((sx) => ESC.every((sy) => {
+    const sp = pts.map(([x, y]) => [x * sx, y * sy]);
+    return [d.cx * sx - a.w / 2 + 0.5, d.cx * sx + a.w / 2 - 0.5].every((x) => dentro(sp, x, topo * sy - de + 0.2));
+  }));
+  let de = a.ybaseDe;
+  while (!assenta(de) && de < 30) de += 1;
+  if (!assenta(de)) throw new Error(`${d.nome}: a aba não assenta no corpo`);
+  const aba = { w: a.w, r: a.r, de, dhy: a.dhy, dtopo };
+  if (aba.de + aba.dhy + dtopo < 2 * a.r) throw new Error(`${d.nome}: aba demasiado baixa para r=${a.r}`);
 
   formas.push({
-    nome: d.nome, cx: d.cx, cy: d.cy, util: d.util,
-    aba: { w: a.w, r: a.r, ybase, hy, ytopo },
-    bbox: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)],
-    outer: pts, inner: inner.map(paraPts),
+    nome: d.nome, cx: d.cx, cy: d.cy, util: d.util, topo: Math.round(topo * 100) / 100,
+    bw: Math.round((Math.max(...xs) - Math.min(...xs)) * 100) / 100, bh: Math.round((Math.max(...ys) - Math.min(...ys)) * 100) / 100,
+    aba, bbox: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)],
+    outer: pts,
   });
 }
 
@@ -161,11 +166,11 @@ fs.writeFileSync(path.join(ROOT, 'lib/formasEtiqueta.json'), JSON.stringify({ bo
 const num = (n) => String(n);
 const lista = (pts) => '[' + pts.map(([x, y]) => `[${num(x)},${num(y)}]`).join(',') + ']';
 const scadFormas = formas.map((f) =>
-  `  ["${f.nome}", ${f.cx}, ${f.cy}, ${f.aba.w}, ${f.aba.r}, ${f.aba.ybase}, ${f.aba.hy}, ${f.aba.ytopo},\n` +
-  `   ${lista(f.outer)},\n` +
-  `   [${f.inner.map(lista).join(',')}]]`).join(',\n');
+  `  ["${f.nome}", ${f.cx}, ${f.cy}, ${f.topo}, ${f.bw}, ${f.bh}, ${f.aba.w}, ${f.aba.r}, ${f.aba.de}, ${f.aba.dhy}, ${f.aba.dtopo},\n` +
+  `   ${lista(f.outer)}]`).join(',\n');
 const bloco = `// @@FORMAS-BEGIN (gerado por scripts/gerar_formas.mjs — não editar à mão)
-// [nome, cx, cy, aba_w, aba_r, aba_ybase, furo_y, aba_ytopo, contorno, [contornos da borda interior]]
+// [nome, cx, cy, topo_em_cx, largura_base, altura_base, aba_w, aba_r, aba_recuo, furo_acima_topo, aba_acima_furo, contorno]
+// (largura_mm/altura_mm escalam x e y em relação a largura_base/altura_base; a borda é calculada no OpenSCAD com offset)
 FORMAS = [
 ${scadFormas}
 ];
@@ -188,15 +193,25 @@ sql = sql.replace(/(generation_schema = \$json\$)([\s\S]*?)(\$json\$::jsonb)/, (
     ui: { label: 'Forma', widget: 'select', options: formas.map((f) => f.nome) },
     order: 4, default: 'Retangular',
   };
-  params.fontSize.order = 5;
-  params.fonte.order = 6;
+  const medida = (label, order) => ({
+    ui: { label, widget: 'number', step: 1, placeholder: 'auto (tamanho da forma)' },
+    min: 30, max: 250, unit: 'mm', order, default: '',
+  });
+  delete params.larg_pct; delete params.alt_pct; delete schema.ajuste_texto.escala_largura; // versões anteriores
+  params.largura_mm = medida('Largura da placa', 5);
+  params.altura_mm = medida('Altura da placa', 6);
+  params.fontSize.order = 7;
+  params.fonte.order = 8;
   // mantém a ordem das chaves legível
   const ordenado = Object.fromEntries(Object.entries(params).sort((x, y) => (x[1].order ?? 0) - (y[1].order ?? 0)));
   schema.parameters = ordenado;
+  // a largura útil acompanha a largura da placa: factor = largura_mm / largura_base da forma
+  schema.ajuste_texto.largura_mm_param = 'largura_mm';
+  schema.ajuste_texto.largura_base_por_forma = Object.fromEntries(formas.map((f) => [f.nome, f.bw]));
   schema.ajuste_texto.largura_por_forma = Object.fromEntries(formas.map((f) => [f.nome, f.util]));
   return a + JSON.stringify(schema, null, 2) + c;
 });
 fs.writeFileSync(sqlPath, sql);
 
 for (const f of formas)
-  console.log(f.nome.padEnd(11), 'bbox', f.bbox.map((n) => n.toFixed(1)).join(','), 'pts', f.outer.length, 'inner', f.inner.map((i) => i.length).join('+') || '-', 'aba', JSON.stringify(f.aba));
+  console.log(f.nome.padEnd(11), 'bbox', f.bbox.map((n) => n.toFixed(1)).join(','), 'pts', f.outer.length, 'aba', JSON.stringify(f.aba));
