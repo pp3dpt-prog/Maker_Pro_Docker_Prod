@@ -170,7 +170,7 @@ const scadFormas = formas.map((f) =>
   `   ${lista(f.outer)}]`).join(',\n');
 const bloco = `// @@FORMAS-BEGIN (gerado por scripts/gerar_formas.mjs — não editar à mão)
 // [nome, cx, cy, topo_em_cx, largura_base, altura_base, aba_w, aba_r, aba_recuo, furo_acima_topo, aba_acima_furo, contorno]
-// (largura_mm/altura_mm escalam x e y em relação a largura_base/altura_base; a borda é calculada no OpenSCAD com offset)
+// (largura_pct/altura_pct escalam x e y; a borda é calculada no OpenSCAD com offset)
 FORMAS = [
 ${scadFormas}
 ];
@@ -193,21 +193,25 @@ sql = sql.replace(/(generation_schema = \$json\$)([\s\S]*?)(\$json\$::jsonb)/, (
     ui: { label: 'Forma', widget: 'select', options: formas.map((f) => f.nome) },
     order: 4, default: 'Retangular',
   };
-  const medida = (label, order) => ({
-    ui: { label, widget: 'number', step: 1, placeholder: 'auto (tamanho da forma)' },
-    min: 30, max: 250, unit: 'mm', order, default: '',
+  // sliders em % da forma base (50–200); o editor mostra os mm resultantes ao lado
+  const medida = (label, order, chave) => ({
+    ui: {
+      label, widget: 'slider', step: 1,
+      mm_por_forma: { param: 'forma', valores: Object.fromEntries(formas.map((f) => [f.nome, f[chave]])) },
+    },
+    min: 50, max: 200, unit: '%', order, default: 100,
   });
-  delete params.larg_pct; delete params.alt_pct; delete schema.ajuste_texto.escala_largura; // versões anteriores
-  params.largura_mm = medida('Largura da placa', 5);
-  params.altura_mm = medida('Altura da placa', 6);
+  delete params.largura_mm; delete params.altura_mm;
+  params.largura_pct = medida('Largura da placa', 5, 'bw');
+  params.altura_pct = medida('Altura da placa', 6, 'bh');
   params.fontSize.order = 7;
   params.fonte.order = 8;
   // mantém a ordem das chaves legível
   const ordenado = Object.fromEntries(Object.entries(params).sort((x, y) => (x[1].order ?? 0) - (y[1].order ?? 0)));
   schema.parameters = ordenado;
-  // a largura útil acompanha a largura da placa: factor = largura_mm / largura_base da forma
-  schema.ajuste_texto.largura_mm_param = 'largura_mm';
-  schema.ajuste_texto.largura_base_por_forma = Object.fromEntries(formas.map((f) => [f.nome, f.bw]));
+  // a largura útil acompanha a largura da placa: factor = largura_pct / 100
+  delete schema.ajuste_texto.largura_mm_param; delete schema.ajuste_texto.largura_base_por_forma;
+  schema.ajuste_texto.largura_pct_param = 'largura_pct';
   schema.ajuste_texto.largura_por_forma = Object.fromEntries(formas.map((f) => [f.nome, f.util]));
   return a + JSON.stringify(schema, null, 2) + c;
 });

@@ -26,7 +26,7 @@ UPDATE prod_designs SET
 //   nome, linha2, verso   texto da frente (1–2 linhas) e do verso (escavado)
 //   fonte                 família da fonte (instalada no servidor, ver /fonts)
 //   fontSize              tamanho do texto em mm (size do OpenSCAD)
-//   largura_mm, altura_mm largura / altura da placa em mm (opcionais; vazio = tamanho da forma)
+//   largura_pct, altura_pct  largura / altura da placa em % da forma (50–200, omissão 100)
 //   esc_nome, esc_linha2, esc_verso
 //                         factor 0–1 de redução do texto, calculado pelo servidor
 //                         (lib/textFit.js) para caber na largura útil; 1 = sem redução
@@ -61,7 +61,7 @@ prof_verso = 1.3;   // profundidade do verso escavado
 // generation_schema.ajuste_texto.largura_por_forma (usada pelo servidor e pelo browser).
 // @@FORMAS-BEGIN (gerado por scripts/gerar_formas.mjs — não editar à mão)
 // [nome, cx, cy, topo_em_cx, largura_base, altura_base, aba_w, aba_r, aba_recuo, furo_acima_topo, aba_acima_furo, contorno]
-// (largura_mm/altura_mm escalam x e y em relação a largura_base/altura_base; a borda é calculada no OpenSCAD com offset)
+// (largura_pct/altura_pct escalam x e y; a borda é calculada no OpenSCAD com offset)
 FORMAS = [
   ["Retangular", 42.5, 25, 50, 85, 50, 18, 4, 2, 6, 6,
    [[77.78,0.04],[78.56,0.15],[79.32,0.34],[80.06,0.61],[80.77,0.95],[81.45,1.35],[82.08,1.82],[82.66,2.34],[83.18,2.93],[83.65,3.56],[84.06,4.23],[84.39,4.94],[84.66,5.68],[84.85,6.44],[84.96,7.22],[85,8],[85,42],[84.96,42.78],[84.85,43.56],[84.66,44.32],[84.39,45.06],[84.06,45.77],[83.65,46.45],[83.18,47.08],[82.66,47.66],[82.08,48.18],[81.45,48.65],[80.77,49.06],[80.06,49.39],[79.32,49.66],[78.56,49.85],[77.78,49.96],[77,50],[8,50],[7.22,49.96],[6.44,49.85],[5.68,49.66],[4.94,49.39],[4.23,49.06],[3.56,48.65],[2.93,48.18],[2.34,47.66],[1.82,47.08],[1.35,46.45],[0.95,45.77],[0.61,45.06],[0.34,44.32],[0.15,43.56],[0.04,42.78],[0,42],[0,8],[0.04,7.22],[0.15,6.44],[0.34,5.68],[0.61,4.94],[0.95,4.23],[1.35,3.56],[1.82,2.93],[2.34,2.34],[2.93,1.82],[3.56,1.35],[4.23,0.95],[4.94,0.61],[5.68,0.34],[6.44,0.15],[7.22,0.04],[8,0],[77,0]]],
@@ -88,12 +88,12 @@ function _forma() = is_undef(forma) ? "Retangular" : forma;
 function _f() = let(i = [for (k = [0:len(FORMAS)-1]) if (FORMAS[k][0] == _forma()) k])
     FORMAS[len(i) > 0 ? i[0] : 0];
 
-// Dimensões da placa em mm (largura_mm, altura_mm; vazio/ausente = tamanho da forma).
-// Escala x e y do contorno entre 50 % e 200 % da forma base; aba, furo e texto não se
-// deformam, só mudam de posição.
-function _esc(v, base) = is_num(v) ? max(0.5, min(2, v / base)) : 1;
-function _sx() = is_undef(largura_mm) ? 1 : _esc(largura_mm, _f()[4]);
-function _sy() = is_undef(altura_mm)  ? 1 : _esc(altura_mm,  _f()[5]);
+// Dimensões da placa: percentagem (50–200) da forma base, nos sliders largura_pct e
+// altura_pct (omissão 100). Escala x e y do contorno; aba, furo e texto não se deformam,
+// só mudam de posição.
+function _esc(v) = is_num(v) ? max(0.5, min(2, v / 100)) : 1;
+function _sx() = is_undef(largura_pct) ? 1 : _esc(largura_pct);
+function _sy() = is_undef(altura_pct)  ? 1 : _esc(altura_pct);
 
 function _cx() = _f()[1] * _sx();
 function _cy() = _f()[2] * _sy();
@@ -207,31 +207,57 @@ $scad$,
       "order": 4,
       "default": "Retangular"
     },
-    "largura_mm": {
+    "largura_pct": {
       "ui": {
         "label": "Largura da placa",
-        "widget": "number",
+        "widget": "slider",
         "step": 1,
-        "placeholder": "auto (tamanho da forma)"
+        "mm_por_forma": {
+          "param": "forma",
+          "valores": {
+            "Retangular": 85,
+            "Redonda": 64,
+            "Nuvem": 85,
+            "Mochila": 83,
+            "Flor": 62,
+            "Sol": 69.54,
+            "Estrela": 64.68,
+            "Livro": 85,
+            "Lápis": 85
+          }
+        }
       },
-      "min": 30,
-      "max": 250,
-      "unit": "mm",
+      "min": 50,
+      "max": 200,
+      "unit": "%",
       "order": 5,
-      "default": ""
+      "default": 100
     },
-    "altura_mm": {
+    "altura_pct": {
       "ui": {
         "label": "Altura da placa",
-        "widget": "number",
+        "widget": "slider",
         "step": 1,
-        "placeholder": "auto (tamanho da forma)"
+        "mm_por_forma": {
+          "param": "forma",
+          "valores": {
+            "Retangular": 50,
+            "Redonda": 64,
+            "Nuvem": 50,
+            "Mochila": 50,
+            "Flor": 62,
+            "Sol": 69.54,
+            "Estrela": 61.51,
+            "Livro": 50,
+            "Lápis": 38
+          }
+        }
       },
-      "min": 30,
-      "max": 250,
-      "unit": "mm",
+      "min": 50,
+      "max": 200,
+      "unit": "%",
       "order": 6,
-      "default": ""
+      "default": 100
     },
     "fontSize": {
       "ui": {
@@ -296,18 +322,7 @@ $scad$,
       "Livro": 66,
       "Lápis": 54
     },
-    "largura_mm_param": "largura_mm",
-    "largura_base_por_forma": {
-      "Retangular": 85,
-      "Redonda": 64,
-      "Nuvem": 85,
-      "Mochila": 83,
-      "Flor": 62,
-      "Sol": 69.54,
-      "Estrela": 64.68,
-      "Livro": 85,
-      "Lápis": 85
-    }
+    "largura_pct_param": "largura_pct"
   }
 }$json$::jsonb
 WHERE id = 'etiqueta_mochila';
