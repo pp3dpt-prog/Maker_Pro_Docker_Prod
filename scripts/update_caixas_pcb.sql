@@ -158,7 +158,10 @@ module no_corpo(xc) {
     }
 }
 module no_tampa(xc) {                        // orientação de impressão (placa em z = 0)
-    x0 = xc + 0.2;
+    // Mesmas posições x que os nós do corpo: a tampa fecha-se virando-a como a página de um
+    // livro (espelho em x, o bordo da dobradiça fica atrás), o que a põe nas posições
+    // intercaladas com as do corpo.
+    x0 = xc - LK() - 0.2;
     hull() {
         translate([x0, EL() + KDY(), KR()]) rotate([0, 90, 0]) cylinder(h = LK(), r = KR(), $fn = 40);
         translate([x0, EL() - 0.01, 0]) cube([LK(), 0.01, LIDT()]);
@@ -222,19 +225,25 @@ module tampa() {
             tampa_chapa();
             if (!LIVING()) for (i = [0 : HN() - 1]) no_tampa(PITCH() * (i + 0.5));
         }
+        // folga para os nós do corpo (que, com a tampa fechada, ficam nestes intervalos de x)
+        if (!LIVING())
+            for (i = [0 : HN() - 1])
+                translate([PITCH() * (i + 0.5) + 0.2 - 0.3, EL() - WALL(), -1])
+                    cube([LK() + 0.6, WALL() + 1, LIDT() + 2]);
         if (!LIVING())
             intersection() {
                 translate([-1, EL() + KDY(), KR()]) rotate([0, 90, 0])
                     cylinder(h = EW() + 2, d = PIND() + 0.25, $fn = 24);
                 union() for (i = [0 : HN() - 1])
-                    translate([PITCH() * (i + 0.5) + 0.2 - 0.5, EL(), -1]) cube([LK() + 1, 2 * KR() + 1, 20]);
+                    translate([PITCH() * (i + 0.5) - LK() - 0.2 - 0.5, EL(), -1]) cube([LK() + 1, 2 * KR() + 1, 20]);
             }
     }
     if (LIVING()) translate([2, -STRAP_L() - 1, 0]) cube([EW() - 4, STRAP_L() + 1.01, STRAP_T()]);
 }
-// Fechado, para a pré-visualização: a tampa vira-se 180° em torno do bordo de trás.
+// Fechado, para a pré-visualização: a tampa vira-se 180° como a página de um livro
+// (em torno do eixo Y), por isso o bordo da dobradiça continua atrás.
 module tampa_fechada() {
-    translate([0, EL(), HB() + HGAP() + LIDT()]) rotate([180, 0, 0]) tampa();
+    translate([EW(), 0, HB() + HGAP() + LIDT()]) rotate([0, 180, 0]) tampa();
 }
 
 module pcb_fantasma() {
@@ -739,7 +748,10 @@ module no_corpo(xc) {
     }
 }
 module no_tampa(xc) {                        // orientação de impressão (placa em z = 0)
-    x0 = xc + 0.2;
+    // Mesmas posições x que os nós do corpo: a tampa fecha-se virando-a como a página de um
+    // livro (espelho em x, o bordo da dobradiça fica atrás), o que a põe nas posições
+    // intercaladas com as do corpo.
+    x0 = xc - LK() - 0.2;
     hull() {
         translate([x0, EL() + KDY(), KR()]) rotate([0, 90, 0]) cylinder(h = LK(), r = KR(), $fn = 40);
         translate([x0, EL() - 0.01, 0]) cube([LK(), 0.01, LIDT()]);
@@ -803,19 +815,25 @@ module tampa() {
             tampa_chapa();
             if (!LIVING()) for (i = [0 : HN() - 1]) no_tampa(PITCH() * (i + 0.5));
         }
+        // folga para os nós do corpo (que, com a tampa fechada, ficam nestes intervalos de x)
+        if (!LIVING())
+            for (i = [0 : HN() - 1])
+                translate([PITCH() * (i + 0.5) + 0.2 - 0.3, EL() - WALL(), -1])
+                    cube([LK() + 0.6, WALL() + 1, LIDT() + 2]);
         if (!LIVING())
             intersection() {
                 translate([-1, EL() + KDY(), KR()]) rotate([0, 90, 0])
                     cylinder(h = EW() + 2, d = PIND() + 0.25, $fn = 24);
                 union() for (i = [0 : HN() - 1])
-                    translate([PITCH() * (i + 0.5) + 0.2 - 0.5, EL(), -1]) cube([LK() + 1, 2 * KR() + 1, 20]);
+                    translate([PITCH() * (i + 0.5) - LK() - 0.2 - 0.5, EL(), -1]) cube([LK() + 1, 2 * KR() + 1, 20]);
             }
     }
     if (LIVING()) translate([2, -STRAP_L() - 1, 0]) cube([EW() - 4, STRAP_L() + 1.01, STRAP_T()]);
 }
-// Fechado, para a pré-visualização: a tampa vira-se 180° em torno do bordo de trás.
+// Fechado, para a pré-visualização: a tampa vira-se 180° como a página de um livro
+// (em torno do eixo Y), por isso o bordo da dobradiça continua atrás.
 module tampa_fechada() {
-    translate([0, EL(), HB() + HGAP() + LIDT()]) rotate([180, 0, 0]) tampa();
+    translate([EW(), 0, HB() + HGAP() + LIDT()]) rotate([0, 180, 0]) tampa();
 }
 
 module pcb_fantasma() {
@@ -1320,7 +1338,10 @@ module no_corpo(xc) {
     }
 }
 module no_tampa(xc) {                        // orientação de impressão (placa em z = 0)
-    x0 = xc + 0.2;
+    // Mesmas posições x que os nós do corpo: a tampa fecha-se virando-a como a página de um
+    // livro (espelho em x, o bordo da dobradiça fica atrás), o que a põe nas posições
+    // intercaladas com as do corpo.
+    x0 = xc - LK() - 0.2;
     hull() {
         translate([x0, EL() + KDY(), KR()]) rotate([0, 90, 0]) cylinder(h = LK(), r = KR(), $fn = 40);
         translate([x0, EL() - 0.01, 0]) cube([LK(), 0.01, LIDT()]);
@@ -1384,19 +1405,25 @@ module tampa() {
             tampa_chapa();
             if (!LIVING()) for (i = [0 : HN() - 1]) no_tampa(PITCH() * (i + 0.5));
         }
+        // folga para os nós do corpo (que, com a tampa fechada, ficam nestes intervalos de x)
+        if (!LIVING())
+            for (i = [0 : HN() - 1])
+                translate([PITCH() * (i + 0.5) + 0.2 - 0.3, EL() - WALL(), -1])
+                    cube([LK() + 0.6, WALL() + 1, LIDT() + 2]);
         if (!LIVING())
             intersection() {
                 translate([-1, EL() + KDY(), KR()]) rotate([0, 90, 0])
                     cylinder(h = EW() + 2, d = PIND() + 0.25, $fn = 24);
                 union() for (i = [0 : HN() - 1])
-                    translate([PITCH() * (i + 0.5) + 0.2 - 0.5, EL(), -1]) cube([LK() + 1, 2 * KR() + 1, 20]);
+                    translate([PITCH() * (i + 0.5) - LK() - 0.2 - 0.5, EL(), -1]) cube([LK() + 1, 2 * KR() + 1, 20]);
             }
     }
     if (LIVING()) translate([2, -STRAP_L() - 1, 0]) cube([EW() - 4, STRAP_L() + 1.01, STRAP_T()]);
 }
-// Fechado, para a pré-visualização: a tampa vira-se 180° em torno do bordo de trás.
+// Fechado, para a pré-visualização: a tampa vira-se 180° como a página de um livro
+// (em torno do eixo Y), por isso o bordo da dobradiça continua atrás.
 module tampa_fechada() {
-    translate([0, EL(), HB() + HGAP() + LIDT()]) rotate([180, 0, 0]) tampa();
+    translate([EW(), 0, HB() + HGAP() + LIDT()]) rotate([0, 180, 0]) tampa();
 }
 
 module pcb_fantasma() {
