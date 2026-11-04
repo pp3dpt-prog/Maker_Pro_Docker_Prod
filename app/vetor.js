@@ -49,7 +49,7 @@ async function rasterizar(buffer) {
 // ── Fundo ────────────────────────────────────────────────────────────────────
 
 /** Máscara de primeiro plano (1 = desenho). */
-function mascaraPrimeiroPlano(img, { removerFundo, tolerancia }) {
+function mascaraPrimeiroPlano(img, { removerFundo, tolerancia, buracosFundo }) {
   const W = img.getWidth(), H = img.getHeight();
   const d = img.bitmap.data;
   const fg = new Uint8Array(W * H);
@@ -58,7 +58,7 @@ function mascaraPrimeiroPlano(img, { removerFundo, tolerancia }) {
     if (d[i * 4 + 3] >= 128) fg[i] = 1; else transparentes++;
   }
   // Imagem já com transparência a sério → é isso que define o fundo.
-  if (!removerFundo || transparentes > W * H * 0.02) return fg;
+  if (!removerFundo || transparentes > W * H * 0.02) return { fg, fundoOpaco: false };
 
   // Sem transparência: a cor mais comum na borda é o fundo; flood fill a partir da
   // borda (assim o branco DENTRO do desenho — olhos, letras — não é apagado).
@@ -92,7 +92,28 @@ function mascaraPrimeiroPlano(img, { removerFundo, tolerancia }) {
     if (y > 0) { const j = i - W; if (!visto[j] && fg[j] && parecido(j)) { visto[j] = 1; pilha.push(j); } }
     if (y < H - 1) { const j = i + W; if (!visto[j] && fg[j] && parecido(j)) { visto[j] = 1; pilha.push(j); } }
   }
-  return fg;
+
+  // Fundo DENTRO do desenho (o meio de um "O", de um anel…): não toca na borda, por
+  // isso o flood fill acima não o apanha. Com buracosFundo, as manchas da cor do
+  // fundo com tamanho razoável passam a buracos (pequenas — olhos, brilhos — ficam
+  // como cor, porque normalmente são detalhe e não buraco).
+  if (buracosFundo) {
+    const minPx = W * H * 0.002;
+    const comp = [];
+    for (let s0 = 0; s0 < W * H; s0++) {
+      if (visto[s0] || !fg[s0] || !parecido(s0)) continue;
+      comp.length = 0; visto[s0] = 1; pilha.push(s0);
+      while (pilha.length) {
+        const i = pilha.pop(); comp.push(i);
+        const x = i % W, y = (i - x) / W;
+        for (const j of [x > 0 ? i - 1 : -1, x < W - 1 ? i + 1 : -1, y > 0 ? i - W : -1, y < H - 1 ? i + W : -1]) {
+          if (j >= 0 && !visto[j] && fg[j] && parecido(j)) { visto[j] = 1; pilha.push(j); }
+        }
+      }
+      if (comp.length >= minPx) for (const i of comp) fg[i] = 0;
+    }
+  }
+  return { fg, fundoOpaco: true };
 }
 
 // ── Cores (k-means determinístico) ───────────────────────────────────────────
@@ -274,10 +295,10 @@ function ancoras(fg, W, H) {
  * @param {Buffer} buffer  ficheiro carregado (SVG, PNG, JPG, WebP)
  * @param {{ numCores?: number, removerFundo?: boolean, tolerancia?: number }} opts
  */
-export async function vetorizarImagem(buffer, { numCores = 3, removerFundo = true, tolerancia = 40 } = {}) {
+export async function vetorizarImagem(buffer, { numCores = 3, removerFundo = true, tolerancia = 40, buracosFundo = false } = {}) {
   const { img, ehSvg } = await rasterizar(buffer);
   const W = img.getWidth(), H = img.getHeight();
-  const fg = mascaraPrimeiroPlano(img, { removerFundo, tolerancia });
+  const { fg, fundoOpaco } = mascaraPrimeiroPlano(img, { removerFundo, tolerancia, buracosFundo });
   let nFg = 0; for (let i = 0; i < W * H; i++) nFg += fg[i];
   if (nFg < W * H * 0.001) throw Object.assign(new Error('A imagem ficou vazia depois de remover o fundo. Experimenta desligar "Remover fundo".'), { status: 400 });
 
@@ -295,5 +316,5 @@ export async function vetorizarImagem(buffer, { numCores = 3, removerFundo = tru
   }
   const silhueta = await tracar(fg, W, H);
 
-  return { versao: 1, w: W, h: H, ehSvg, cores, silhueta, ancoras: ancoras(fg, W, H) };
+  return { versao: 1, w: W, h: H, ehSvg, fundoOpaco, cores, silhueta, ancoras: ancoras(fg, W, H) };
 }

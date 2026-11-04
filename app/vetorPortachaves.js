@@ -29,6 +29,7 @@ export function opcoesVetor(params = {}) {
     numCores: Math.max(1, Math.min(6, Math.round(Number(params.num_cores ?? 3)) || 3)),
     removerFundo: !(params.remover_fundo === 0 || params.remover_fundo === false || params.remover_fundo === '0'),
     tolerancia: Math.max(5, Math.min(150, Number(params.tolerancia ?? 40) || 40)),
+    buracosFundo: params.buracos_fundo === 1 || params.buracos_fundo === true || params.buracos_fundo === '1',
   };
 }
 
@@ -41,7 +42,7 @@ export function validarCaminhoImagem(imagePath, userId) {
 
 export async function obterVetor(imagePath, params) {
   const opts = opcoesVetor(params);
-  const chave = `${imagePath}|${opts.numCores}|${opts.removerFundo}|${opts.tolerancia}`;
+  const chave = `${imagePath}|${opts.numCores}|${opts.removerFundo}|${opts.tolerancia}|${opts.buracosFundo}`;
   if (cache.has(chave)) {
     const v = cache.get(chave);
     cache.delete(chave); cache.set(chave, v); // LRU
