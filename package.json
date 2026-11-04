@@ -7,16 +7,20 @@
     "start": "node server.js"
   },
   "dependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "@supabase/supabase-js": "^2.38.0",
     "archiver": "^7.0.1",
     "body-parser": "^1.19.0",
+    "clipper-lib": "^6.4.2",
     "cors": "^2.8.5",
     "dotenv": "^16.0.0",
+    "earcut": "^3.2.4",
     "express": "^4.18.2",
     "jimp": "^0.22.12",
     "openai": "^6.34.0",
     "opentype.js": "^2.0.0",
     "pg": "^8.20.0",
+    "potrace": "^2.1.8",
     "uuid": "^9.0.1"
   }
 }

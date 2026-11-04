@@ -12,6 +12,7 @@ import { frameImage, aspectForFamily, targetLongPxForFamily, heightFracBeerLambe
 import { buildHueforgeTxt }   from './gerar-stl-pro.js';
 import { scadVars }           from '../lib/scad.js';
 import { aplicarAjusteTexto } from '../lib/textFit.js';
+import { ENGINE_VETOR, gerarFicheirosVetor, validarCaminhoImagem } from '../app/vetorPortachaves.js';
 
 const OPENSCAD_BIN = 'openscad';
 const TMP_DIR = path.join(process.cwd(), 'tmp');
@@ -166,10 +167,14 @@ export async function downloadStl(req, res) {
     // Factores esc_* de ajuste do texto (só designs com generation_schema.ajuste_texto)
     aplicarAjusteTexto(design.generation_schema, paramsNormalizados);
 
+    // Porta-chaves de imagem a cores (SVG/PNG → cores vetoriais; STL/ZIP/3MF)
+    const isVetor = design.generation_schema?.engine === ENGINE_VETOR;
+    if (isVetor) validarCaminhoImagem(paramsNormalizados.image_path, user.id);
+
     // Processar imagem se existir (HueForge e portachaves com imagem)
     const tempImageFiles = [];
     let coresDetectadas = null; // preenchido abaixo em modo_cor; usado no .txt do HueForge mais à frente
-    if (typeof paramsNormalizados.image_path === 'string' && paramsNormalizados.image_path.startsWith('uploads/')) {
+    if (!isVetor && typeof paramsNormalizados.image_path === 'string' && paramsNormalizados.image_path.startsWith('uploads/')) {
       const imgUid = uuid();
       const rawPath  = path.join(TMP_DIR, `img_raw_${imgUid}.png`);
       const procPath = path.join(TMP_DIR, `img_proc_${imgUid}.png`);
@@ -283,7 +288,14 @@ export async function downloadStl(req, res) {
     const isLetras = design.familia === 'letras-decorativas';
     const isCaixaLuz = design.familia === 'letras-caixa-luz';
 
-    if (isHueforgeFamily && typeof paramsNormalizados.image_path === 'string' && paramsNormalizados.image_path.startsWith('/')) {
+    if (isVetor) {
+      const nomeBase = String(design.nome || 'porta-chaves').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').toLowerCase() || 'porta-chaves';
+      for (const f of await gerarFicheirosVetor(paramsNormalizados.image_path, paramsNormalizados, nomeBase)) {
+        const p = `${base}_${f.name}`;
+        await fsp.writeFile(p, f.buffer);
+        files.push({ name: f.name, path: p });
+      }
+    } else if (isHueforgeFamily && typeof paramsNormalizados.image_path === 'string' && paramsNormalizados.image_path.startsWith('/')) {
       // HueForge: gerar STL com JS puro (imagem já processada acima)
       const img = await Jimp.read(paramsNormalizados.image_path);
       const w = img.getWidth(), h = img.getHeight();
@@ -453,9 +465,11 @@ export async function downloadStl(req, res) {
     // Upload para Storage
     const isZip = files.length > 1;
     const timestamp = `${Date.now()}`; // milissegundos — sempre único
+    const extUnico = (files[0]?.name.split('.').pop() || 'stl').toLowerCase();
+    const MIME = { stl: 'model/stl', '3mf': 'model/3mf' };
     const fileName = isZip
       ? `${design_id}_${timestamp}.zip`
-      : `${design_id}_${timestamp}.stl`;
+      : `${design_id}_${timestamp}.${extUnico}`;
     const storagePath = `${user.id}/${fileName}`;
 
     let fileUrl = null;
@@ -476,7 +490,7 @@ export async function downloadStl(req, res) {
       fileUrl = await uploadToStorage(zipPath, storagePath, 'application/zip');
       fs.unlink(zipPath, () => {});
     } else {
-      fileUrl = await uploadToStorage(files[0].path, storagePath, 'model/stl');
+      fileUrl = await uploadToStorage(files[0].path, storagePath, MIME[extUnico] ?? 'application/octet-stream');
     }
 
     console.log('fileUrl:', fileUrl ? 'gerado' : 'null');
@@ -527,7 +541,7 @@ export async function downloadStl(req, res) {
     archiveBrowser.finalize();
 
     res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename="${design_id}.zip"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${isVetor ? 'porta-chaves' : design_id}.zip"`);
     zipStream.pipe(res);
     res.on('finish', () => { cleanupFiles(files); tempImageFiles.forEach(f => fsp.unlink(f).catch(() => {})); const txtTmp = `${base}_hueforge.txt`; fsp.unlink(txtTmp).catch(() => {}); });
 
