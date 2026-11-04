@@ -18,15 +18,17 @@ const PARAM_PADRAO = {
   largura: 40,                 // mm — largura do desenho (a base acrescenta o contorno)
   contorno: 2.5,               // mm de base à volta do desenho
   espessura_base: 2.0,         // mm
-  relevo: 1.2,                 // mm (altura das cores por cima da base)
+  relevo: 1.2,                 // mm (altura das cores por cima da base; sem AMS com pausas: altura de CADA nível)
   acabamento: 'relevo',        // AMS: 'relevo' (cores salientes) | 'liso' (cores embutidas, superfície plana)
-  cor_relevo: 1,               // sem AMS + SVG: cor que fica em relevo (1 = mais escura)
+  metodo: 'pausas',            // sem AMS: 'pausas' (uma peça, troca de filamento por altura) | 'pecas' (peças para colar)
+  cor_base: 0,                 // sem AMS + pausas: cor da base (1..n; 0 = automática → a mais clara)
+  ordem: 'escuras_cima',       // sem AMS + pausas, 3+ cores: 'escuras_cima' | 'claras_cima'
   furo_pos: 'cima',            // 'cima' | 'esquerda' | 'direita' | 'cima-esquerda' | 'cima-direita' | 'nenhum'
   furo_d: 4.5,                 // mm
   detalhe_min: 0.4,            // mm² — ilhas mais pequenas são removidas (não imprimem bem)
   preencher_buracos: 1,        // base sem buracos interiores
-  encaixe: 0.6,                // sem AMS + PNG: profundidade dos encaixes na base (mm)
-  folga: 0.2,                  // sem AMS + PNG: folga total entre peça e encaixe (mm)
+  encaixe: 0.6,                // sem AMS + peças: profundidade dos encaixes na base (mm)
+  folga: 0.2,                  // sem AMS + peças: folga total entre peça e encaixe (mm)
 };
 
 export function normalizarParametros(p = {}) {
@@ -37,7 +39,10 @@ export function normalizarParametros(p = {}) {
   }
   const lim = (k, a, b) => { if (!Number.isFinite(n[k])) n[k] = PARAM_PADRAO[k]; n[k] = Math.max(a, Math.min(b, n[k])); };
   lim('largura', 15, 150); lim('contorno', 0, 10); lim('espessura_base', 0.8, 8); lim('relevo', 0.2, 5);
-  lim('furo_d', 2, 12); lim('detalhe_min', 0, 10); lim('encaixe', 0.2, 2); lim('folga', 0, 1); lim('cor_relevo', 1, 6);
+  lim('furo_d', 2, 12); lim('detalhe_min', 0, 10); lim('encaixe', 0.2, 2); lim('folga', 0, 1); lim('cor_base', 0, 6);
+  n.cor_base = Math.round(n.cor_base);
+  if (!['pausas', 'pecas'].includes(n.metodo)) n.metodo = 'pausas';
+  if (!['escuras_cima', 'claras_cima'].includes(n.ordem)) n.ordem = 'escuras_cima';
   if (!['sem_ams', 'ams'].includes(n.modo)) n.modo = 'sem_ams';
   if (!['relevo', 'liso'].includes(n.acabamento)) n.acabamento = 'relevo';
   if (!['cima', 'esquerda', 'direita', 'cima-esquerda', 'cima-direita', 'nenhum'].includes(n.furo_pos)) n.furo_pos = 'cima';
@@ -196,19 +201,41 @@ export function construirPecas(vetor, parametros) {
     guia.push(`Ficheiro 3MF com ${pecas.length} partes já montadas: base + ${coresR.length} cor(es).`);
     guia.push('No Bambu Studio / OrcaSlicer / PrusaSlicer, atribui um filamento do AMS a cada parte (as cores detetadas estão indicadas abaixo).');
     pecas.forEach(pc => guia.push(`  • ${pc.nome}: ${pc.cor}`));
-  } else if (vetor.ehSvg) {
-    // Sem AMS + SVG: base + a cor escolhida em relevo, numa só peça; troca de filamento manual.
-    const idx = Math.min(p.cor_relevo, coresR.length) - 1;
-    const topo = coresR[idx];
-    pecas.push({ nome: 'porta-chaves', cor: '#f5f5f5', fatias: [
-      { z0: 0, z1: eb, regiao: base2d },
-      { z0: eb, z1: eb + rv, regiao: topo.regiao, cor: topo.hex },  // cor só para a pré-visualização
-    ] });
-    guia.push(`Peça única: base de ${comp(eb)} + desenho (${topo.hex}) em relevo de ${comp(rv)}.`);
-    guia.push(`Imprime a base com o filamento claro e faz a troca de filamento (pausa / M600) na primeira camada acima de ${comp(eb)}, para o filamento escuro.`);
-    guia.push('No slicer: clica com o botão direito na barra das camadas à altura indicada → "Adicionar pausa" ou "Mudar filamento".');
+  } else if (p.metodo === 'pausas') {
+    // Sem AMS, peça única com trocas de filamento por altura (pausa / M600):
+    // a base é impressa na "cor de base"; cada uma das outras cores sobe um nível.
+    // Na faixa de altura do nível k imprime-se a cor k em TODAS as zonas que vão até
+    // ao nível k ou acima — por isso, vista de cima, cada zona acaba com a sua cor
+    // (as paredes laterais mostram riscas das cores de baixo).
+    const nC = coresR.length;
+    let corBase = null, outras;
+    if (nC === 1) { outras = coresR.slice(); }
+    else {
+      const iBase = p.cor_base >= 1 && p.cor_base <= nC ? p.cor_base - 1 : nC - 1; // por omissão a mais clara
+      corBase = coresR[iBase];
+      outras = coresR.filter((_, i) => i !== iBase);           // ordem: escura → clara
+    }
+    const niveis = p.ordem === 'claras_cima' ? outras.slice() : outras.slice().reverse(); // de baixo para cima
+    const hexBase = corBase ? corBase.hex : '#f5f5f5';
+    const fatias = [{ z0: 0, z1: eb, regiao: base2d, cor: hexBase }];
+    for (let k = 0; k < niveis.length; k++) {
+      const regiao = uniao(niveis.slice(k).flatMap(c => c.regiao));
+      fatias.push({ z0: eb + k * rv, z1: eb + (k + 1) * rv, regiao, cor: niveis[k].hex });
+    }
+    pecas.push({ nome: 'porta-chaves', cor: hexBase, fatias });
+    alturaTotal = eb + niveis.length * rv;
+
+    guia.push(`Peça única com ${niveis.length + 1} cor(es): base de ${comp(eb)} + ${niveis.length} nível(eis) de ${comp(rv)}.`);
+    guia.push(`Começa a impressão com o filamento da base${corBase ? ` (${corBase.hex})` : ''}.`);
+    niveis.forEach((c, k) => guia.push(`  • Pausa na primeira camada acima de ${comp(eb + k * rv)} → troca para ${c.hex}`));
+    guia.push('No slicer: botão direito na barra das camadas, à altura indicada → "Adicionar pausa" (ou "Mudar filamento" / M600).');
+    guia.push('Usa uma altura de camada que divida certo a base e os níveis (ex.: 0,2 mm) para a troca coincidir com o início de cada nível.');
+    if (niveis.length >= 2) {
+      guia.push('Com várias cores o relevo fica em degraus e as paredes laterais mostram riscas das cores de baixo; vista de cima, cada zona tem a sua cor.');
+      if (rv > 0.8) avisos.push(`Com ${niveis.length} níveis de ${comp(rv)} os degraus ficam muito marcados — experimenta 0,4–0,6 mm por nível.`);
+    }
   } else {
-    // Sem AMS + PNG: base com encaixes + uma peça por cor para colar.
+    // Sem AMS, peças para colar: base com encaixes + uma peça por cor.
     const enc = p.encaixe, f2 = p.folga / 2;
     const encaixes = uniao(coresR.flatMap(c => offset(c.regiao, f2)));
     pecas.push({ nome: 'base', cor: '#f5f5f5', fatias: [

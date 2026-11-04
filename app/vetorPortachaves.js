@@ -6,8 +6,8 @@
  * download-stl (ficheiro final).
  *
  *   Com AMS ............. 1 ficheiro .3mf com as partes montadas (base + cada cor)
- *   Sem AMS + SVG ....... 1 .stl (base + cor escolhida em relevo) + guia de troca de filamento
- *   Sem AMS + PNG/JPG ... .zip com base (com encaixes) + 1 .stl por cor para colar + guia
+ *   Sem AMS, pausas ..... .zip com 1 .stl (base numa cor + um nível por cada outra cor) + guia das pausas
+ *   Sem AMS, peças ...... .zip com base (com encaixes) + 1 .stl por cor para colar + guia
  */
 import { createClient } from '@supabase/supabase-js';
 import { vetorizarImagem } from './vetor.js';
