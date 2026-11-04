@@ -1,4 +1,6 @@
-FROM node:20-bullseye-slim
+# Debian 12 (bookworm): o Debian 11 (bullseye) terminou o suporte LTS a 31/08/2026 e os
+# repositórios saíram dos espelhos normais → o apt-get update falhava (exit code 100).
+FROM node:22-bookworm-slim
 
 # 1. Instalar OpenSCAD e utilitários de fontes
 # fonts-liberation/fonts-dejavu-core/fonts-urw-base35/fonts-ubuntu: fontes de
@@ -6,6 +8,8 @@ FROM node:20-bullseye-slim
 # DejaVu Serif, URW Chancery L, Ubuntu) — sem estes pacotes o OpenSCAD faz
 # fallback silencioso para outra fonte quando o nome pedido não é encontrado,
 # fazendo com que todas as opções de fonte saiam iguais no STL final.
+# fonts-ubuntu fica opcional: se não existir nos repositórios da versão do Debian,
+# a build continua (só a fonte "Ubuntu" cai para outra).
 RUN apt-get update && apt-get install -y \
     openscad \
     fontconfig \
@@ -13,7 +17,7 @@ RUN apt-get update && apt-get install -y \
     fonts-liberation \
     fonts-dejavu-core \
     fonts-urw-base35 \
-    fonts-ubuntu \
+    && (apt-get install -y fonts-ubuntu || echo "AVISO: fonts-ubuntu indisponivel") \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
