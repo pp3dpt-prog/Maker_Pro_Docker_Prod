@@ -3,6 +3,7 @@
 --     malha não fechada — e as 15 fontes do servidor (antes 4).
 --  2. Pet tags novas, em RASCUNHO (só o admin as vê): tag-estrela, tag-gato, tag-escudo,
 --     copiadas da tag-hexagono (schema, preços, plano) com template próprio.
+--     Sem base_template_id (prod_scad_templates só tem as 4 formas originais; não é usada).
 --     Templates em templates/pet_tags/. Falta: miniatura (Admin → Miniaturas) e estado = 'ativo'.
 --  3. Porta-chaves com patamares, copo dos dentes e etiqueta de cabide: 15 fontes
 --     ("Baloo2" → "Baloo 2"); a etiqueta de cabide leva também o offset na Press Start 2P.
@@ -31,7 +32,7 @@ INSERT INTO prod_designs
 SELECT (jsonb_populate_record(NULL::prod_designs, to_jsonb(d) || jsonb_build_object(
   'id', 'tag-estrela', 'nome', 'Estrela', 'estado', 'rascunho',
   'scad_template', t.tpl,
-  'stl_file_path', '/models/blank_estrela.stl', 'base_template_id', 'blank_estrela',
+  'stl_file_path', '/models/blank_estrela.stl', 'base_template_id', NULL,
   'thumbnail_url', NULL, 'image_url', NULL, 'descricao', NULL,
   'likes', 0, 'total_likes', 0, 'downloads', 0, 'total_downloads', 0, 'criado_em', now()
 ))).*
@@ -102,7 +103,7 @@ INSERT INTO prod_designs
 SELECT (jsonb_populate_record(NULL::prod_designs, to_jsonb(d) || jsonb_build_object(
   'id', 'tag-gato', 'nome', 'Gato', 'estado', 'rascunho',
   'scad_template', t.tpl,
-  'stl_file_path', '/models/blank_gato.stl', 'base_template_id', 'blank_gato',
+  'stl_file_path', '/models/blank_gato.stl', 'base_template_id', NULL,
   'thumbnail_url', NULL, 'image_url', NULL, 'descricao', NULL,
   'likes', 0, 'total_likes', 0, 'downloads', 0, 'total_downloads', 0, 'criado_em', now()
 ))).*
@@ -178,7 +179,7 @@ INSERT INTO prod_designs
 SELECT (jsonb_populate_record(NULL::prod_designs, to_jsonb(d) || jsonb_build_object(
   'id', 'tag-escudo', 'nome', 'Escudo', 'estado', 'rascunho',
   'scad_template', t.tpl,
-  'stl_file_path', '/models/blank_escudo.stl', 'base_template_id', 'blank_escudo',
+  'stl_file_path', '/models/blank_escudo.stl', 'base_template_id', NULL,
   'thumbnail_url', NULL, 'image_url', NULL, 'descricao', NULL,
   'likes', 0, 'total_likes', 0, 'downloads', 0, 'total_downloads', 0, 'criado_em', now()
 ))).*
