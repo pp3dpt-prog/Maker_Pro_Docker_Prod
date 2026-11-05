@@ -13,6 +13,7 @@ import { buildHueforgeTxt }   from './gerar-stl-pro.js';
 import { scadVars }           from '../lib/scad.js';
 import { aplicarAjusteTexto } from '../lib/textFit.js';
 import { ENGINE_VETOR, gerarFicheirosVetor, validarCaminhoImagem } from '../app/vetorPortachaves.js';
+import { tresMf, lerStl } from '../app/ficheiros3d.js';
 
 const OPENSCAD_BIN = 'openscad';
 const TMP_DIR = path.join(process.cwd(), 'tmp');
@@ -106,6 +107,78 @@ async function uploadToStorage(filePath, storagePath, mimeType) {
     console.error('Erro uploadToStorage:', err);
     return null;
   }
+}
+
+/**
+ * Modelos multicor (generation_schema.multicor), p.ex. a etiqueta de mochila:
+ *
+ *   "multicor": {
+ *     "param_impressao": "impressao",       // param do select AMS / Sem AMS
+ *     "troca_cor_mm": 3.5,                  // altura da troca de cor sem AMS
+ *     "partes": [ { "modo": "base",  "nome": "Placa", "cor_param": "cor_base"  }, ... ]
+ *   }
+ *
+ * Com AMS: o template corre uma vez por parte (modo = parte.modo) e as malhas vão
+ * para um 3MF com uma peça por cor (Bambu Studio / Orca atribuem um filamento a cada).
+ * Sem AMS: um STL único (modo = "tudo") + LEIA-ME com a camada da troca de cor.
+ * Partes vazias (p.ex. sem texto) não geram ficheiro e são saltadas; a 1.ª é obrigatória.
+ */
+export function semAms(cfg, params) {
+  const v = String(params?.[cfg.param_impressao || 'impressao'] ?? '');
+  return /^sem/i.test(v.trim());
+}
+
+export async function gerarMulticor({ design, params, base, nomeBase }) {
+  const cfg = design.generation_schema.multicor;
+  const partesCfg = Array.isArray(cfg.partes) ? cfg.partes : [];
+
+  if (semAms(cfg, params)) {
+    const stlPath = `${base}.stl`;
+    await gerarSTL({ scadTemplate: design.scad_template, params: { ...params, modo: 'tudo' }, outFile: stlPath });
+    const z = Number(cfg.troca_cor_mm);
+    const cores = partesCfg.map(p => `  • ${p.nome}: ${String(params[p.cor_param] ?? '').toUpperCase()}`);
+    const guia = [
+      `pp3d.pt — ${design.nome}`,
+      '',
+      'Impressão sem AMS (uma cor de cada vez):',
+      ...(Number.isFinite(z) ? [
+        `  1. Começa com a cor da ${partesCfg[0]?.nome?.toLowerCase() || 'base'}.`,
+        `  2. No slicer, adiciona uma troca de cor (Color Change / Pause / M600) na camada dos ${z.toFixed(2)} mm.`,
+        '  3. Troca o filamento: tudo o que está em relevo acima dessa altura sai na 2.ª cor.',
+        ...(partesCfg.length > 2 ? ['     (sem AMS, as partes em relevo — ' + partesCfg.slice(1).map(p => p.nome.toLowerCase()).join(' e ') + ' — ficam na mesma cor)'] : []),
+      ] : []),
+      '',
+      'Cores escolhidas:',
+      ...cores,
+      '',
+      'Dica: com AMS / multi-material escolhe "AMS" e recebes um 3MF com uma peça por cor.',
+      '',
+    ].join('\r\n');
+    const txtPath = `${base}_leia-me.txt`;
+    await fsp.writeFile(txtPath, guia, 'utf8');
+    return [{ name: `${nomeBase}.stl`, path: stlPath }, { name: 'LEIA-ME_impressao.txt', path: txtPath }];
+  }
+
+  const partes = [];
+  for (const [i, p] of partesCfg.entries()) {
+    const stlPath = `${base}_${p.modo}.stl`;
+    try {
+      await gerarSTL({ scadTemplate: design.scad_template, params: { ...params, modo: p.modo }, outFile: stlPath });
+    } catch (e) {
+      if (i === 0) throw e;           // sem base não há etiqueta
+      console.log(`Multicor: parte "${p.modo}" vazia, saltada`);
+      continue;
+    }
+    const tri = lerStl(await fsp.readFile(stlPath));
+    fsp.unlink(stlPath).catch(() => {});
+    fsp.unlink(stlPath.replace('.stl', '.scad')).catch(() => {});
+    if (!tri.length) continue;
+    const cor = /^#[0-9a-f]{6}$/i.test(String(params[p.cor_param])) ? String(params[p.cor_param]) : '#FFFFFF';
+    partes.push({ nome: p.nome, cor, tri });
+  }
+  const p3mf = `${base}.3mf`;
+  await fsp.writeFile(p3mf, await tresMf(partes, nomeBase));
+  return [{ name: `${nomeBase}.3mf`, path: p3mf }];
 }
 
 function cleanupFiles(files) {
@@ -356,6 +429,10 @@ export async function downloadStl(req, res) {
       const txtPath = `${base}_hueforge.txt`;
       await fsp.writeFile(txtPath, txtContent, 'ascii');
       files.push({ name: 'hueforge_cores.txt', path: txtPath });
+    } else if (design.generation_schema?.multicor && design.scad_template) {
+      const nomeBase = String(design.nome || design_id).normalize('NFD').replace(/[̀-ͯ]/g, '')
+        .replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').toLowerCase() || 'pp3d';
+      files.push(...await gerarMulticor({ design, params: paramsNormalizados, base, nomeBase }));
     } else if (isCaixa) {
       // Caixa — usa modo="corpo" e modo="tampa"
       const caixaPath = `${base}_caixa.stl`;

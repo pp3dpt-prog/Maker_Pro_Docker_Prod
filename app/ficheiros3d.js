@@ -29,6 +29,29 @@ export function stlBinario(tri, nome = 'pp3d') {
   return buf;
 }
 
+/**
+ * STL (ASCII, como o OpenSCAD 2021 exporta, ou binário) → triângulos soltos
+ * [x1,y1,z1, x2,y2,z2, x3,y3,z3, ...], o formato que stlBinario/tresMf recebem.
+ */
+export function lerStl(buf) {
+  const tri = [];
+  const inicio = buf.subarray(0, 512).toString('latin1');
+  // Um STL binário pode começar por "solid" no cabeçalho: confirmar pelo tamanho.
+  const nBin = buf.length >= 84 ? buf.readUInt32LE(80) : -1;
+  const ehBinario = !/^\s*solid/.test(inicio) || (nBin >= 0 && 84 + nBin * 50 === buf.length && !inicio.includes('facet'));
+  if (ehBinario) {
+    for (let i = 0, o = 84; i < nBin; i++, o += 50) {
+      for (let k = 0; k < 9; k++) tri.push(buf.readFloatLE(o + 12 + k * 4));
+    }
+    return tri;
+  }
+  const re = /vertex\s+(\S+)\s+(\S+)\s+(\S+)/g;
+  const txt = buf.toString('latin1');
+  let m;
+  while ((m = re.exec(txt))) tri.push(+m[1], +m[2], +m[3]);
+  return tri;
+}
+
 /** Triângulos soltos → vértices únicos + índices (3MF exige malha indexada). */
 function indexar(tri) {
   const mapa = new Map();

@@ -7,6 +7,14 @@
 //   esc_nome, esc_linha2, esc_verso
 //                         factor 0–1 de redução do texto, calculado pelo servidor
 //                         (lib/textFit.js) para caber na largura útil; 1 = sem redução
+//   cor_base, cor_borda, cor_texto
+//                         cores (#RRGGBB) de cada parte; só usadas no modo "tudo"
+//                         (no 3MF a cor vai em cada objeto, ver generation_schema.multicor)
+//   modo                  que parte gerar: "base" (placa + aba, com o verso escavado),
+//                         "borda", "texto" ou "tudo" (omissão; "preview" = "tudo").
+//                         O backend gera cada parte num STL e junta-as num 3MF multicor.
+//                         As partes tocam-se sem se sobreporem, para o slicer as aceitar
+//                         como peças do mesmo objeto.
 //
 // Não há valores por defeito como `nome = ...;` e também não se derivam variáveis de
 // topo a partir das injectadas (`_nome = is_undef(nome) ? "" : nome;` seria calculada
@@ -23,6 +31,14 @@ function _fs()        = is_undef(fontSize)  ? 9           : fontSize;
 function _esc_nome()   = is_undef(esc_nome)   ? 1 : esc_nome;
 function _esc_linha2() = is_undef(esc_linha2) ? 1 : esc_linha2;
 function _esc_verso()  = is_undef(esc_verso)  ? 1 : esc_verso;
+function _modo()      = is_undef(modo) ? "tudo" : modo;
+function _cor(c, d)   = (is_string(c) && len(c) == 7) ? c : d;
+function _cor_base()  = is_undef(cor_base)  ? "#1E3A8A" : _cor(cor_base,  "#1E3A8A");
+function _cor_borda() = is_undef(cor_borda) ? "#FFFFFF" : _cor(cor_borda, "#FFFFFF");
+function _cor_texto() = is_undef(cor_texto) ? "#FFFFFF" : _cor(cor_texto, "#FFFFFF");
+// Peças separadas (base/borda/texto) assentam em z = esp; em "tudo" sobrepõem-se 0,01 mm
+// para o OpenSCAD as fundir num só sólido.
+function _sob()       = (_modo() == "base" || _modo() == "borda" || _modo() == "texto") ? 0 : 0.01;
 
 esp     = 3.5;
 r_furo  = 3.8;
@@ -93,12 +109,14 @@ module furo_cordao() {
     translate([_cx(), _furo_y(), -1]) cylinder(h = esp + 2, r = r_furo, $fn = 48);
 }
 
+module interior2d() { offset(delta = -borda_larg) forma2d(); }
+
 module borda_relevo() {
-    translate([0, 0, esp - 0.01])
-        linear_extrude(borda_esp + 0.01)
+    translate([0, 0, esp - _sob()])
+        linear_extrude(borda_esp + _sob())
             difference() {
                 forma2d();
-                offset(delta = -borda_larg) forma2d();
+                interior2d();
             }
 }
 
@@ -118,22 +136,40 @@ module corte_verso() {
             mirror([1, 0]) texto2d(_verso(), _esc_verso());
 }
 
+// Texto cortado pelo interior da borda: assim o texto e a borda nunca ocupam o mesmo
+// volume (no 3MF seriam duas peças sobrepostas e o slicer escolheria uma cor ao acaso).
 module frente() {
-    translate([0, 0, esp - 0.01])
-        linear_extrude(alt_texto + 0.01) {
-            if (len(_linha2()) > 0) {
-                translate([_cx(), _cy() + _fs() * 0.55]) texto2d(_nome(), _esc_nome());
-                translate([_cx(), _cy() - _fs() * 0.55]) texto2d(_linha2(), _esc_linha2());
-            } else {
-                translate([_cx(), _cy()]) texto2d(_nome(), _esc_nome());
+    translate([0, 0, esp - _sob()])
+        linear_extrude(alt_texto + _sob())
+            intersection() {
+                interior2d();
+                union() {
+                    if (len(_linha2()) > 0) {
+                        translate([_cx(), _cy() + _fs() * 0.55]) texto2d(_nome(), _esc_nome());
+                        translate([_cx(), _cy() - _fs() * 0.55]) texto2d(_linha2(), _esc_linha2());
+                    } else {
+                        translate([_cx(), _cy()]) texto2d(_nome(), _esc_nome());
+                    }
+                }
             }
-        }
 }
 
-difference() {
-    linear_extrude(esp) { forma2d(); aba2d(); }
-    furo_cordao();
-    if (len(_verso()) > 0) corte_verso();
+module base() {
+    difference() {
+        linear_extrude(esp) { forma2d(); aba2d(); }
+        furo_cordao();
+        if (len(_verso()) > 0) corte_verso();
+    }
 }
-borda_relevo();
-frente();
+
+if (_modo() == "base") {
+    base();
+} else if (_modo() == "borda") {
+    borda_relevo();
+} else if (_modo() == "texto") {
+    frente();
+} else {
+    color(_cor_base())  base();
+    color(_cor_borda()) borda_relevo();
+    color(_cor_texto()) frente();
+}
