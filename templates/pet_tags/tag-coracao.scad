@@ -21,11 +21,11 @@ module _peca(p) {
         base();
         // Verso (Telefone) - Usa as variáveis do server.js
         translate([xPosN, yPosN, -0.1]) mirror([1,0,0]) linear_extrude(1.1)
-            text(telefone, size = fontSizeN, font = fonte, halign = "center", valign = "center");
+            offset(delta = 0.01) text(telefone, size = fontSizeN, font = fonte, halign = "center", valign = "center");
     }
     // Frente (Nome) - Usa as variáveis do server.js
     if (p == "texto") translate([xPos, yPos, altura_fixa]) linear_extrude(1)
-        text(nome_pet, size = fontSize, font = fonte, halign = "center", valign = "center");
+        offset(delta = 0.01) text(nome_pet, size = fontSize, font = fonte, halign = "center", valign = "center");
 }
 
 // --- REBORDO (opcional) ---
