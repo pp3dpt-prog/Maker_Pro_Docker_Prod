@@ -1,0 +1,7 @@
+-- Suporte para bases de copos (2026-11-06), em RASCUNHO, família 'Base copos'. Aplicado em produção
+-- com verificação por MD5 (template em templates/suporte_bases_copos.scad, md5 30641531776de7eb46981a0b5b09380c),
+-- copiando a linha da base_copos (plano, preços). Na mesma transação:
+--   UPDATE base_copos: familia = 'Base copos', generation_schema.preview_servidor = true
+--   UPDATE nome_flexivel: generation_schema.preview_servidor = true
+-- preview_servidor: o customizador gera a pré-visualização no servidor sozinho (PageInner.tsx).
+-- Para refazer o schema: SELECT generation_schema FROM prod_designs WHERE id = 'suporte_bases_copos';
