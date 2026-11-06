@@ -9,15 +9,19 @@
 // rebordo, parede de dentro, fundo): não há booleanas, por isso gera depressa no servidor.
 // Cada forma é dada pela distância ao centro em função do ângulo (r_in(a)).
 //
-// Parâmetros: forma, largura (das bases, mm), num_bases, altura_base (mm por base),
-//   folga, parede, fundo, textura, tamanho_textura, profundidade, entalhe (true/false)
+// Parâmetros: forma, largura (das bases, mm), altura_base (espessura de cada base com o relevo),
+//   folga, parede, fundo, textura, tamanho_textura, profundidade, entalhe (true/false), degrau (mm)
+// Leva sempre 6 bases (num_bases só para testes): a altura interior é 6 × altura_base + 1 mm, para
+// a última base ficar rente ao topo. O entalhe desce até deixar um degrau baixo à frente
+// (omissão 3 mm), para se conseguir tirar a última base sem ela escorregar para fora.
 //
 // As injectadas são lidas por funções, por isso a ordem de injecção é indiferente.
 
 function _forma() = is_undef(forma) ? "Redonda" : forma;
 function _L()     = is_undef(largura) ? 95 : largura;
 function _nb()    = is_undef(num_bases) ? 6 : num_bases;
-function _hb()    = is_undef(altura_base) ? 4.5 : altura_base;
+function _hb()    = is_undef(altura_base) ? 4.3 : altura_base;
+function _degrau() = is_undef(degrau) ? 3 : degrau;
 function _c()     = is_undef(folga) ? 1 : folga;
 function _t()     = is_undef(parede) ? 2.4 : parede;
 function _f()     = is_undef(fundo) ? 2 : fundo;
@@ -26,7 +30,7 @@ function _lam()   = is_undef(tamanho_textura) ? 8 : tamanho_textura;
 function _A()     = (_tex() == "Liso") ? 0 : (is_undef(profundidade) ? 0.9 : profundidade);
 function _ent()   = is_undef(entalhe) || entalhe == true || entalhe == 1;
 
-function _Hint()  = _nb() * _hb() + 3;          // altura útil por dentro (3 mm de folga em cima)
+function _Hint()  = _nb() * _hb() + 1;          // altura útil por dentro (1 mm de folga em cima)
 function _H()     = _f() + _Hint();
 
 // ── forma: distância ao centro (mm) da parede interior, no ângulo a (graus) ──
@@ -41,12 +45,12 @@ function r_in(a) =
   : _forma() == "Hexagonal" ? r_hex(a, _L() / 2 + _c())
   : _L() / 2 + _c();
 
-// ── entalhe à frente (a = 270°): baixa o topo das paredes, com transição suave ──
+// ── entalhe à frente (a = 270°): baixa o topo das paredes até ao degrau, com transição suave ──
 function _ang_dist(a, b) = abs(((a - b) % 360 + 540) % 360 - 180);
 function entalhe_f(a) = !_ent() ? 0 :
-    let(d = _ang_dist(a, 270), al = 24, be = 10)
+    let(d = _ang_dist(a, 270), al = 22, be = 14)
     d < al ? 1 : d < al + be ? 0.5 + 0.5 * cos(180 * (d - al) / be) : 0;
-function z_topo(a) = _H() - entalhe_f(a) * _Hint() * 0.6;
+function z_topo(a) = _H() - entalhe_f(a) * (_Hint() - _degrau());   // no fundo do entalhe: fundo + degrau
 
 // ── texturas (0..1) em função do ângulo (ciclos à volta) e da altura ──
 function _frac(x) = x - floor(x);
