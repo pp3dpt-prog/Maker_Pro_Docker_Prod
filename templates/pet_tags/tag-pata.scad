@@ -1,21 +1,26 @@
 altura_fixa = 3;
 
-// Elipse como no editor: scale([rx, ry]) circle(1), rodada e colocada em (cx, cy).
-// $fn fixo: com os valores por omissão do OpenSCAD um circle(r = 1) sai um pentágono.
+// Elipse: scale([rx, ry]) circle(1), rodada e colocada em (cx, cy). $fn fixo (com os valores
+// por omissão do OpenSCAD um circle(r = 1) sai um pentágono).
 module elipse(cx, cy, rx, ry, rot = 0) {
     translate([cx, cy]) rotate(rot) scale([rx, ry]) circle(r = 1, $fn = 72);
 }
 
-// Almofada + 4 dedos encostados a ela; o fecho (offset +0,8 / −0,8) suaviza a
-// ligação dedo-almofada sem tapar os entalhes entre os dedos.
+// Os 5 "feijões" da pata, separados entre si: almofada (onde vai o nome) + 4 dedos.
+module feijoes_2d() {
+    elipse(0, -5.5, 12, 9);
+    elipse(-5.3, 10, 3.8, 5, 10);
+    elipse(5.3, 10, 3.8, 5, -10);
+    elipse(-13, 5, 3.3, 4.5, 40);
+    elipse(13, 5, 3.3, 4.5, -40);
+}
+
+// Medalha: os feijões alargados 1,6 mm (ficam ligados), o polígono dos centros enche o
+// interior e o fecho de 1,2 mm suaviza as ligações, deixando entalhes entre os dedos.
 module pata_2d() {
-    offset(r = -0.8) offset(r = 0.8) union() {
-        elipse(0, -6, 13, 10);
-        elipse(-5.6, 8, 4.3, 5.6, 8);
-        elipse(5.6, 8, 4.3, 5.6, -8);
-        elipse(-13.2, 2.5, 4, 5.2, 32);
-        elipse(13.2, 2.5, 4, 5.2, -32);
-        translate([-2.5, 5]) square([5, 10.5]);   // tapa a fenda entre os dedos do meio, sob a argola
+    offset(r = -1.2, $fn = 48) offset(r = 1.2, $fn = 48) union() {
+        offset(r = 1.6, $fn = 48) feijoes_2d();
+        polygon([[-13, 5], [-5.3, 10], [-2.5, 15], [2.5, 15], [5.3, 10], [13, 5], [0, -5.5]]);   // enche o interior e a ligação à argola
     }
 }
 
@@ -23,9 +28,9 @@ module geometria_pata() {
     linear_extrude(height = altura_fixa) difference() {
         union() {
             pata_2d();
-            translate([0, 15.5]) circle(r = 5, $fn = 72);          // argola
+            translate([0, 18]) circle(r = 4.5, $fn = 72);          // argola
         }
-        translate([0, 15.5]) circle(r = 2.6, $fn = 72);            // furo da argola
+        translate([0, 18]) circle(r = 2.4, $fn = 72);              // furo da argola
     }
 }
 
@@ -48,8 +53,9 @@ module _peca(p) {
 rebordo = false;
 rebordo_largura = 1.2;
 rebordo_altura = 1;
-module rebordo_corpo_2d() { pata_2d(); }
-module rebordo_furo_2d() { translate([0, 15.5]) circle(r = 2.6, $fn = 72); }
+// Na pata o rebordo desenha cada feijão (um anel por feijão; com largura grande ficam cheios).
+module rebordo_corpo_2d() { feijoes_2d(); }
+module rebordo_furo_2d() { translate([0, 18]) circle(r = 2.4, $fn = 72); }
 module _rebordo() if (rebordo)
     translate([0, 0, altura_fixa]) linear_extrude(height = rebordo_altura)
         difference() { rebordo_corpo_2d(); offset(delta = -rebordo_largura) rebordo_corpo_2d(); rebordo_furo_2d(); }
