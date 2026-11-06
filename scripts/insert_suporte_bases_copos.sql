@@ -5,3 +5,7 @@
 --   UPDATE nome_flexivel: generation_schema.preview_servidor = true
 -- preview_servidor: o customizador gera a pré-visualização no servidor sozinho (PageInner.tsx).
 -- Para refazer o schema: SELECT generation_schema FROM prod_designs WHERE id = 'suporte_bases_copos';
+
+-- 2026-11-06: generation_schema.preview_servidor retirado da base_copos, suporte_bases_copos e
+-- nome_flexivel — passaram a ter pré-visualização ao vivo no browser (frontend lib/baseCopos.ts,
+-- lib/suporteBases.ts, lib/nomeFlexivel.ts).
