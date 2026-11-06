@@ -137,11 +137,14 @@ export async function gerarMulticor({ design, params, base, nomeBase }) {
     await gerarSTL({ scadTemplate: design.scad_template, params: { ...params, modo: 'tudo' }, outFile: stlPath });
     const z = Number(cfg.troca_cor_mm);
     const cores = partesCfg.map(p => `  • ${p.nome}: ${String(params[p.cor_param] ?? '').toUpperCase()}`);
+    // cfg.texto_sem_ams (opcional): linhas próprias do modelo, quando não há troca de cor por
+    // altura (p.ex. nome flexível: as cores são por letra, não por camada).
+    const proprias = Array.isArray(cfg.texto_sem_ams) ? cfg.texto_sem_ams.map(String) : null;
     const guia = [
       `pp3d.pt — ${design.nome}`,
       '',
-      'Impressão sem AMS (uma cor de cada vez):',
-      ...(Number.isFinite(z) ? [
+      ...(proprias ?? ['Impressão sem AMS (uma cor de cada vez):']),
+      ...(!proprias && Number.isFinite(z) ? [
         `  1. Começa com a cor da ${partesCfg[0]?.nome?.toLowerCase() || 'base'}.`,
         `  2. No slicer, adiciona uma troca de cor (Color Change / Pause / M600) na camada dos ${z.toFixed(2)} mm.`,
         '  3. Troca o filamento: tudo o que está em relevo acima dessa altura sai na 2.ª cor.',
