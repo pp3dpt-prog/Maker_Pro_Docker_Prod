@@ -114,7 +114,7 @@ async function uploadToStorage(filePath, storagePath, mimeType) {
  *
  *   "multicor": {
  *     "param_impressao": "impressao",       // param do select AMS / Sem AMS
- *     "troca_cor_mm": 3.5,                  // altura da troca de cor sem AMS
+ *     "troca_cor_mm": 3.5,                  // altura da troca de cor sem AMS (ou "troca_cor_param")
  *     "partes": [ { "modo": "base",  "nome": "Placa", "cor_param": "cor_base"  }, ... ]
  *   }
  *
@@ -135,7 +135,8 @@ export async function gerarMulticor({ design, params, base, nomeBase }) {
   if (semAms(cfg, params)) {
     const stlPath = `${base}.stl`;
     await gerarSTL({ scadTemplate: design.scad_template, params: { ...params, modo: 'tudo' }, outFile: stlPath });
-    const z = Number(cfg.troca_cor_mm);
+    // altura da troca de cor: fixa (troca_cor_mm) ou lida de um parâmetro (troca_cor_param, p.ex. a espessura da base)
+    const z = Number(cfg.troca_cor_param ? params[cfg.troca_cor_param] : cfg.troca_cor_mm);
     const cores = partesCfg.map(p => `  • ${p.nome}: ${String(params[p.cor_param] ?? '').toUpperCase()}`);
     // cfg.texto_sem_ams (opcional): linhas próprias do modelo, quando não há troca de cor por
     // altura (p.ex. nome flexível: as cores são por letra, não por camada).
