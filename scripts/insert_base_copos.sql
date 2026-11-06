@@ -1,0 +1,6 @@
+-- Base para copos (2026-11-06), em RASCUNHO. Aplicado em produção com verificação por MD5
+-- (template em templates/base_copos.scad, md5 f8f4032a4a72cd26b83df28c8dd0f3cf), copiando a
+-- linha da etiqueta_cabide (família, plano, preços). Schema: ajuste_texto (campo texto,
+-- largura útil 60 mm), multicor base / padrao / texto com troca_cor_param = espessura.
+-- Para refazer: SELECT generation_schema FROM prod_designs WHERE id = 'base_copos';
+-- Para publicar: miniatura (Admin → Miniaturas) e estado = 'ativo'.
