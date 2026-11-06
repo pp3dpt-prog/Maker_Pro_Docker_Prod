@@ -17,7 +17,8 @@ export function generateHueforgeStl({ heightmap, largura, altura, espBase, altRe
   // por isso a última coluna/linha cai exatamente em largura/altura (paredes encaixam).
   const scaleX = largura / Math.max(1, cols - 1);
   const scaleY = altura  / Math.max(1, rows - 1);
-  const h = (r, c) => espBase + heightmap[r][c] * altRelevo;
+  // linha 0 da imagem (topo) fica em y = altura → imagem direita vista de cima
+  const h = (r, c) => espBase + heightmap[rows - 1 - r][c] * altRelevo;
   return _buildHeightmapStl({ rows, cols, scaleX, scaleY, h, largura, altura });
 }
 
@@ -240,7 +241,10 @@ export function generateLithophaneCurvedStl({ heightmap, alturaMm, raio, angulo,
   const innerPt = (col, row) => {
     const theta   = col * passo;
     const z       = (row / (rows - 1)) * alturaMm;
-    const r_inner = raio - espMax + (1 - heightmap[row][col % cols]) * (espMax - espMin);
+    // topo da imagem em cima e leitura da esquerda para a direita vista de fora
+    const px = heightmap[rows - 1 - row][(cols - 1) - (col % cols)];
+    // escuro (px 0) → parede grossa (espMax); claro (px 1) → fina (espMin)
+    const r_inner = raio - espMin - (1 - px) * (espMax - espMin);
     return [r_inner * Math.sin(theta), r_inner * Math.cos(theta), z];
   };
 

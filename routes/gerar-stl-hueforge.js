@@ -109,7 +109,7 @@ export async function gerarStlHueforge(req, res) {
     const modoCor = rest.modo_cor === true || rest.modo_cor === 1 || rest.modo_cor === '1';
 
     // Hash para cache — inclui ajustes + modo de cor + versão (não serve STLs antigos)
-    const paramsKey = sha256(JSON.stringify({ v: 2, imagePath, numCores, layerHeight, espBase, altRelevo, larguraMm, alturaMm, contraste, brilho, ajuste, zoom, posX, posY, modoCor, renderMode }));
+    const paramsKey = sha256(JSON.stringify({ v: 3, imagePath, numCores, layerHeight, espBase, altRelevo, larguraMm, alturaMm, contraste, brilho, ajuste, zoom, posX, posY, modoCor, renderMode }));
     const stlFilename = `${produtoId}_hf_${paramsKey}.stl`;
     const folder      = `users/${user.id}/${renderMode}`;
     const stlStorage  = `${folder}/${stlFilename}`;
@@ -208,9 +208,12 @@ export async function gerarStlHueforge(req, res) {
       // baixo contraste não saiam todas no mesmo nível (relevo plano).
       img.grayscale();
       img.normalize();
+      // Litofânias: espessura proporcional ao tom (rampa contínua). As bandas
+      // Beer-Lambert são para o HueForge (trocas de filamento por camada).
+      const lito = String(familia || '').toLowerCase().startsWith('litofania');
       img.scan(0, 0, w, h, function (x, y, idx) {
         const gray = this.bitmap.data[idx];
-        const q    = Math.round(heightFracBeerLambert(gray, n) * 255);
+        const q    = lito ? gray : Math.round(heightFracBeerLambert(gray, n) * 255);
         this.bitmap.data[idx] = this.bitmap.data[idx+1] = this.bitmap.data[idx+2] = q;
       });
     }

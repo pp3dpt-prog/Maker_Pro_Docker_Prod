@@ -343,9 +343,12 @@ export async function downloadStl(req, res) {
         // contraste deixam de sair todas no mesmo nível (relevo plano).
         img.grayscale();
         img.normalize();
+        // Litofânias: espessura proporcional ao tom (rampa contínua). As bandas
+        // Beer-Lambert são para o HueForge (trocas de filamento por camada).
+        const lito = familiaImg.startsWith('litofania');
         img.scan(0, 0, iw, ih, function (x, y, idx) {
           const gray = this.bitmap.data[idx];
-          const q    = Math.round(heightFracBeerLambert(gray, n) * 255);
+          const q    = lito ? gray : Math.round(heightFracBeerLambert(gray, n) * 255);
           this.bitmap.data[idx] = this.bitmap.data[idx+1] = this.bitmap.data[idx+2] = q;
         });
       }
