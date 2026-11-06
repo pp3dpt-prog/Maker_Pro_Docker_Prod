@@ -16,6 +16,8 @@ import { createClient } from '@supabase/supabase-js';
 import { fileURLToPath } from 'url';
 import { dirname }       from 'path';
 import { aplicarAjusteTexto } from '../lib/textFit.js';
+import { aplicarLogo } from '../lib/logo.js';
+import { scadVars } from '../lib/scad.js';
 
 // Jimp é CommonJS — compatível com ESM em Node 20
 import Jimp from 'jimp';
@@ -111,6 +113,13 @@ function sanitizeParams(raw) {
       continue;
     }
 
+    // Caminhos de imagens do próprio utilizador noutros parâmetros (p.ex. o logótipo,
+    // generation_schema.logo) passam do limite de 64; o dono é validado em aplicarLogo.
+    if (typeof val === 'string' && val.startsWith('uploads/') && val.length <= MAX_PATH_LEN && !val.includes('..')) {
+      out[key] = val;
+      continue;
+    }
+
     if (typeof val === 'string') {
       if (val.length > MAX_PARAM_LEN) {
         const e = new Error(`Valor demasiado longo em "${key}" (max ${MAX_PARAM_LEN})`);
@@ -164,6 +173,8 @@ function buildScadContent(params, templateText, qualityFn) {
   const vars = Object.entries(params)
     .map(([k, v]) => {
       if (typeof v === 'string') return `${k} = "${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}";`;
+      // listas (larguras das letras do nome flexível, pontos do logótipo): `${v}` daria "1,2,3"
+      if (Array.isArray(v)) return scadVars({ [k]: v });
       return `${k} = ${v};`;
     })
     .join('\n');
@@ -413,6 +424,8 @@ export async function gerarStlPro(req, res) {
     // generation_schema.ajuste_texto; os restantes não são afectados).
     // Tem de correr antes do hash, para a cache distinguir os valores.
     aplicarAjusteTexto(design.generation_schema, params);
+    // Logótipo (generation_schema.logo): silhueta em mm; o caminho tem de ser do utilizador
+    await aplicarLogo(design.generation_schema, params, user.id);
 
     const renderMode = String(mode || 'preview').toLowerCase() === 'preview' ? 'preview' : 'final';
     const qualityFn  = renderMode === 'preview'
