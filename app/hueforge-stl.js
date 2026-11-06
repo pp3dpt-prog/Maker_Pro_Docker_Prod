@@ -225,10 +225,11 @@ export function generateLithophaneCurvedStl({ heightmap, alturaMm, raio, angulo,
   const cols = heightmap[0].length;
   const completo = angulo >= 360;
   const angleRad = (Math.min(angulo, 360) * Math.PI) / 180;
-  const triangles = [];
   // Nº de faixas na horizontal: num cilindro completo a última coluna liga à primeira
   const C = completo ? cols : cols - 1;
   const passo = angleRad / C;
+  const stl = new EscritorStl(4 * (rows - 1) * C + 4 * C + (completo ? 0 : 4 * (rows - 1)));
+  const triangles = { push: (...ts) => { for (const t of ts) stl.tri(t[0], t[1], t[2]); } };
 
   // Coordenadas 3D para um ponto (col, row) na superfície interior/exterior
   const outerPt = (col, row) => {
@@ -282,7 +283,7 @@ export function generateLithophaneCurvedStl({ heightmap, alturaMm, raio, angulo,
     }
   }
 
-  return buildBinaryStl(triangles);
+  return stl.fim();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -290,38 +291,70 @@ export function generateLithophaneCurvedStl({ heightmap, alturaMm, raio, angulo,
 // ─────────────────────────────────────────────────────────────────────────────
 
 function _buildHeightmapStl({ rows, cols, scaleX, scaleY, h, largura, altura }) {
-  const triangles = [];
+  const R = rows - 1, C = cols - 1;
+  // topo 2RC + paredes 4R+4C + base em leque (um triângulo por aresta do perímetro: 2R+2C)
+  const stl = new EscritorStl(2 * R * C + 6 * (R + C));
 
-  for (let r = 0; r < rows-1; r++) {
-    for (let c = 0; c < cols-1; c++) {
+  for (let r = 0; r < R; r++) {
+    for (let c = 0; c < C; c++) {
       const x0=c*scaleX, y0=r*scaleY, x1=(c+1)*scaleX, y1=(r+1)*scaleY;
       const p00=[x0,y0,h(r,c)], p10=[x1,y0,h(r,c+1)], p01=[x0,y1,h(r+1,c)], p11=[x1,y1,h(r+1,c+1)];
-      triangles.push([p00,p10,p11], [p00,p11,p01]);
+      stl.tri(p00,p10,p11); stl.tri(p00,p11,p01);
     }
   }
 
-  // Base — subdividida na mesma grelha das paredes (senão as arestas não
-  // encaixam e a malha fica aberta no perímetro).
-  for (let r = 0; r < rows-1; r++) {
-    for (let c = 0; c < cols-1; c++) {
-      const x0=c*scaleX, y0=r*scaleY, x1=(c+1)*scaleX, y1=(r+1)*scaleY;
-      triangles.push([[x0,y0,0],[x1,y1,0],[x1,y0,0]], [[x0,y0,0],[x0,y1,0],[x1,y1,0]]);
-    }
-  }
+  // Base plana: leque a partir do centro até aos vértices do perímetro (os mesmos
+  // das paredes → malha fechada). Antes era a grelha inteira, o que duplicava o
+  // tamanho do STL e a memória sem acrescentar nada.
+  const perim = [];
+  for (let c = 0; c < C; c++) perim.push([c*scaleX, 0, 0]);
+  for (let r = 0; r < R; r++) perim.push([largura, r*scaleY, 0]);
+  for (let c = C; c > 0; c--) perim.push([c*scaleX, altura, 0]);
+  for (let r = R; r > 0; r--) perim.push([0, r*scaleY, 0]);
+  const centro = [largura / 2, altura / 2, 0];
+  for (let i = 0; i < perim.length; i++) stl.tri(centro, perim[(i + 1) % perim.length], perim[i]);   // normal −z
 
   // Paredes (normais para fora: −y, +y, −x, +x)
-  for (let c=0;c<cols-1;c++) {
+  for (let c=0;c<C;c++) {
     const x0=c*scaleX, x1=(c+1)*scaleX;
-    triangles.push([[x0,0,0],[x1,0,h(0,c+1)],[x0,0,h(0,c)]], [[x0,0,0],[x1,0,0],[x1,0,h(0,c+1)]]);
-    triangles.push([[x0,altura,h(rows-1,c)],[x1,altura,0],[x0,altura,0]], [[x0,altura,h(rows-1,c)],[x1,altura,h(rows-1,c+1)],[x1,altura,0]]);
+    stl.tri([x0,0,0],[x1,0,h(0,c+1)],[x0,0,h(0,c)]); stl.tri([x0,0,0],[x1,0,0],[x1,0,h(0,c+1)]);
+    stl.tri([x0,altura,h(R,c)],[x1,altura,0],[x0,altura,0]); stl.tri([x0,altura,h(R,c)],[x1,altura,h(R,c+1)],[x1,altura,0]);
   }
-  for (let r=0;r<rows-1;r++) {
+  for (let r=0;r<R;r++) {
     const y0=r*scaleY, y1=(r+1)*scaleY;
-    triangles.push([[0,y0,h(r,0)],[0,y1,0],[0,y0,0]], [[0,y0,h(r,0)],[0,y1,h(r+1,0)],[0,y1,0]]);
-    triangles.push([[largura,y0,0],[largura,y1,h(r+1,cols-1)],[largura,y0,h(r,cols-1)]], [[largura,y0,0],[largura,y1,0],[largura,y1,h(r+1,cols-1)]]);
+    stl.tri([0,y0,h(r,0)],[0,y1,0],[0,y0,0]); stl.tri([0,y0,h(r,0)],[0,y1,h(r+1,0)],[0,y1,0]);
+    stl.tri([largura,y0,0],[largura,y1,h(r+1,C)],[largura,y0,h(r,C)]); stl.tri([largura,y0,0],[largura,y1,0],[largura,y1,h(r+1,C)]);
   }
 
-  return buildBinaryStl(triangles);
+  return stl.fim();
+}
+
+/**
+ * Escreve triângulos diretamente num STL binário pré-alocado (50 bytes cada),
+ * sem guardar a lista de triângulos em memória — uma litofânia de 600×600 px
+ * passava dos 400 MB com arrays de arrays e rebentava o servidor.
+ */
+class EscritorStl {
+  constructor(max) {
+    this.buf = Buffer.alloc(84 + 50 * max);
+    this.n = 0; this.o = 84; this.max = max;
+  }
+  tri(a, b, c) {
+    if (this.n >= this.max) throw new Error('EscritorStl: capacidade excedida');
+    const ux=b[0]-a[0], uy=b[1]-a[1], uz=b[2]-a[2], vx=c[0]-a[0], vy=c[1]-a[1], vz=c[2]-a[2];
+    let nx=uy*vz-uz*vy, ny=uz*vx-ux*vz, nz=ux*vy-uy*vx;
+    const l = Math.hypot(nx, ny, nz) || 1; nx/=l; ny/=l; nz/=l;
+    const B = this.buf; let o = this.o;
+    B.writeFloatLE(nx,o); B.writeFloatLE(ny,o+4); B.writeFloatLE(nz,o+8);
+    B.writeFloatLE(a[0],o+12); B.writeFloatLE(a[1],o+16); B.writeFloatLE(a[2],o+20);
+    B.writeFloatLE(b[0],o+24); B.writeFloatLE(b[1],o+28); B.writeFloatLE(b[2],o+32);
+    B.writeFloatLE(c[0],o+36); B.writeFloatLE(c[1],o+40); B.writeFloatLE(c[2],o+44);
+    this.o = o + 50; this.n++;
+  }
+  fim() {
+    this.buf.writeUInt32LE(this.n, 80);
+    return this.n === this.max ? this.buf : this.buf.subarray(0, 84 + 50 * this.n);
+  }
 }
 
 function normal([a, b, c]) {
