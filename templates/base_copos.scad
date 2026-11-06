@@ -1,16 +1,17 @@
-// ── BASE PARA COPOS (padrão em relevo + nome opcional) ──
+// ── BASE PARA COPOS (padrão em relevo + logótipo opcional) ──
 //
 // Base plana com um padrão em relevo no topo (hexágonos, riscas, grelha, losangos, pontos ou
-// ondas), rebordo opcional e um nome/monograma ao centro. O padrão abre-se à volta das letras
-// (margem `halo`) para o nome se ler bem.
+// ondas) e rebordo opcional. O topo fica sempre plano para o copo assentar direito: o
+// logótipo (só com AMS) fica à face com o padrão e entra 0,6 mm na base, distinguindo-se só
+// pela cor; o padrão abre-se à volta dele (margem `halo`).
 //
 // Partes (modo), para o 3MF multicor (generation_schema.multicor):
-//   "base"    placa, z 0..espessura
+//   "base"    placa, z 0..espessura (com o encaixe do logótipo)
 //   "padrao"  padrão + rebordo, z espessura..espessura+relevo
-//   "texto"   nome, z espessura..espessura+relevo+relevo_texto_extra
+//   "logo"    logótipo, z espessura-0,6..espessura+relevo
 //   "tudo"    tudo junto (omissão; "preview" = "tudo")
-// As partes tocam-se sem se sobreporem. esc_texto vem do servidor (lib/textFit.js,
-// generation_schema.ajuste_texto) para o nome caber na largura útil.
+// As partes tocam-se sem se sobreporem. logo_pts / logo_paths / tem_logo vêm do servidor
+// (lib/logo.js, generation_schema.logo): silhueta da imagem, em mm, centrada.
 //
 // As injectadas são lidas por funções (avaliadas só na instanciação), por isso a ordem de
 // injecção (antes ou depois do template) é indiferente.
@@ -24,14 +25,11 @@ function _linha()   = is_undef(linha) ? 1.2 : linha;
 function _relevo()  = is_undef(relevo) ? 0.8 : relevo;
 function _reb()     = !is_undef(rebordo) && (rebordo == true || rebordo == 1);
 function _reb_l()   = is_undef(rebordo_largura) ? 3 : rebordo_largura;
-function _texto()   = is_undef(texto) ? "" : texto;
-function _fonte()   = is_undef(fonte) ? "Luckiest Guy" : fonte;
-function _fs()      = is_undef(fontSize) ? 14 : fontSize;
-function _esc()     = is_undef(esc_texto) ? 1 : esc_texto;
+function _logo()    = !is_undef(tem_logo) && tem_logo == true && !is_undef(logo_pts) && len(logo_pts) >= 3;
 function _halo()    = is_undef(halo) ? 2 : halo;
-function _extra()   = is_undef(relevo_texto_extra) ? 0.4 : relevo_texto_extra;
+function _encaixe() = 0.6;                // quanto o logótipo entra na base
 function _modo()    = is_undef(modo) ? "tudo" : modo;
-function _sob()     = (_modo() == "base" || _modo() == "padrao" || _modo() == "texto") ? 0 : 0.01;
+function _sob()     = (_modo() == "base" || _modo() == "padrao" || _modo() == "logo") ? 0 : 0.01;
 
 module forma2d() {
     if (_forma() == "Quadrada")
@@ -45,11 +43,8 @@ module forma2d() {
 // zona onde o padrão pode existir: dentro do rebordo (ou a 1,5 mm da beira, sem rebordo)
 module interior2d() { offset(delta = -(_reb() ? _reb_l() : 1.5)) forma2d(); }
 
-module texto2d() {
-    if (len(_texto()) > 0)
-        scale(_esc()) offset(delta = 0.01)
-            text(_texto(), size = _fs(), font = _fonte(), halign = "center", valign = "center");
-}
+// logótipo recortado pelo interior (nunca invade o rebordo nem a beira)
+module logo2d() { if (_logo()) intersection() { interior2d(); polygon(points = logo_pts, paths = logo_paths); } }
 
 // ── padrões (2D, a cobrir um quadrado de lado ~L, depois recortados) ──
 function _n() = ceil(_L() / _cel() / 2) + 2;
@@ -101,29 +96,33 @@ module padrao2d_bruto() {
 module padrao2d() {
     difference() {
         intersection() { interior2d(); padrao2d_bruto(); }
-        if (len(_texto()) > 0) offset(r = _halo(), $fn = 24) texto2d();
+        if (_logo()) offset(r = _halo(), $fn = 24) logo2d();
     }
 }
 module rebordo2d() { if (_reb()) difference() { forma2d(); interior2d(); } }
 
-module base()   { linear_extrude(_esp()) forma2d(); }
+module base() {
+    difference() {
+        linear_extrude(_esp()) forma2d();
+        if (_logo()) translate([0, 0, _esp() - _encaixe()]) linear_extrude(_encaixe() + 1) logo2d();
+    }
+}
 module padrao() {
     // offset(delta = 0.01) funde linhas que só se tocam num vértice (favo, riscas, ondas): sem ele a
     // malha não fecha e o OpenSCAD não junta o padrão à base. O intersection mantém-no dentro da base.
     translate([0, 0, _esp() - _sob()]) linear_extrude(_relevo() + _sob())
         intersection() { forma2d(); offset(delta = 0.01) union() { padrao2d(); rebordo2d(); } }
 }
-module nome() {
-    if (len(_texto()) > 0)
-        translate([0, 0, _esp() - _sob()]) linear_extrude(_relevo() + _extra() + _sob())
-            intersection() { interior2d(); texto2d(); }
+module logo() {
+    if (_logo())
+        translate([0, 0, _esp() - _encaixe()]) linear_extrude(_encaixe() + _relevo()) logo2d();
 }
 
 if (_modo() == "base") base();
 else if (_modo() == "padrao") padrao();
-else if (_modo() == "texto") nome();
+else if (_modo() == "logo") logo();
 else {
     color(is_undef(cor_base) ? "#FFFFFF" : cor_base) base();
     color(is_undef(cor_padrao) ? "#1E3A8A" : cor_padrao) padrao();
-    color(is_undef(cor_texto) ? "#DC2626" : cor_texto) nome();
+    color(is_undef(cor_logo) ? "#DC2626" : cor_logo) logo();
 }

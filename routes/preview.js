@@ -6,6 +6,7 @@ import { v4 as uuid } from 'uuid';
 import { createClient } from '@supabase/supabase-js';
 import { scadVars } from '../lib/scad.js';
 import { aplicarAjusteTexto } from '../lib/textFit.js';
+import { aplicarLogo } from '../lib/logo.js';
 
 const router = express.Router();
 
@@ -52,6 +53,8 @@ router.post('/', async (req, res) => {
 
     // Factores esc_* de ajuste do texto (só designs com generation_schema.ajuste_texto)
     aplicarAjusteTexto(design.generation_schema, paramsNormalizados);
+    // Logótipo (generation_schema.logo): silhueta em mm; aqui só se valida o formato do caminho
+    await aplicarLogo(design.generation_schema, paramsNormalizados);
 
     // scadVars escapa aspas/barras e valida as chaves (antes, um nome com `"`
     // partia o ficheiro ou permitia injectar código SCAD).

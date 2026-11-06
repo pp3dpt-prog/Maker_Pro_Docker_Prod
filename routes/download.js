@@ -12,6 +12,7 @@ import { frameImage, aspectForFamily, targetLongPxForFamily, heightFracBeerLambe
 import { buildHueforgeTxt }   from './gerar-stl-pro.js';
 import { scadVars }           from '../lib/scad.js';
 import { aplicarAjusteTexto } from '../lib/textFit.js';
+import { aplicarLogo } from '../lib/logo.js';
 import { ENGINE_VETOR, gerarFicheirosVetor, validarCaminhoImagem } from '../app/vetorPortachaves.js';
 import { tresMf, lerStl } from '../app/ficheiros3d.js';
 
@@ -243,6 +244,8 @@ export async function downloadStl(req, res) {
 
     // Factores esc_* de ajuste do texto (só designs com generation_schema.ajuste_texto)
     aplicarAjusteTexto(design.generation_schema, paramsNormalizados);
+    // Logótipo (generation_schema.logo): o caminho tem de ser do próprio utilizador
+    await aplicarLogo(design.generation_schema, paramsNormalizados, user.id);
 
     // Porta-chaves de imagem a cores (SVG/PNG → cores vetoriais; STL/ZIP/3MF)
     const isVetor = design.generation_schema?.engine === ENGINE_VETOR;
