@@ -1,0 +1,10 @@
+-- Nome flexível (2026-11-06), em RASCUNHO. Aplicado em produção com verificação por MD5
+-- (template em templates/nome_flexivel.scad, md5 be495174f56b6937705b482f8310782e).
+-- Base: linha da etiqueta_cabide (família, plano, preços); schema próprio:
+--   letras_flexi → lib/textFit.js mede cada letra (lx0, lw, cap) e normaliza o nome;
+--   multicor (impares / pares) → 3MF com letras alternadas em duas cores;
+--   teste_folgas → juntas com 0,30 · 0,35 · 0,40 … mm da esquerda para a direita.
+-- Para publicar: miniatura (Admin → Miniaturas) e estado = 'ativo'.
+-- O INSERT completo (com o template e o generation_schema) foi corrido no SQL Editor;
+-- para o refazer, copia o template do ficheiro e o schema de:
+--   SELECT generation_schema FROM prod_designs WHERE id = 'nome_flexivel';
