@@ -4,3 +4,9 @@
 -- largura útil 60 mm), multicor base / padrao / texto com troca_cor_param = espessura.
 -- Para refazer: SELECT generation_schema FROM prod_designs WHERE id = 'base_copos';
 -- Para publicar: miniatura (Admin → Miniaturas) e estado = 'ativo'.
+
+-- 2026-11-06 (2.ª versão, aplicada com verificação por MD5 → 3f99ba7f60af6c49a04de2be37f6fb5c):
+-- sai o texto (ficava mais alto do que o padrão e o copo não assentava direito) e entra o
+-- logótipo (parâmetro logo, image_upload, só com AMS) à face com o padrão. Schema: sem
+-- ajuste_texto; logo = {param: logo, largura_param: logo_largura, so_ams: true}; multicor
+-- base / padrao / logo.
