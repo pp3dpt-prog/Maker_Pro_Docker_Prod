@@ -7,13 +7,14 @@ module elipse(cx, cy, rx, ry, rot = 0) {
 }
 
 // Os 5 "feijões" da pata, separados entre si: almofada (onde vai o nome) + 4 dedos.
-module feijoes_2d() {
-    elipse(0, -5.5, 12, 9);
+module almofada_2d() { elipse(0, -5.5, 12, 9); }
+module dedos_2d() {
     elipse(-5.3, 10, 3.8, 5, 10);
     elipse(5.3, 10, 3.8, 5, -10);
     elipse(-13, 5, 3.3, 4.5, 40);
     elipse(13, 5, 3.3, 4.5, -40);
 }
+module feijoes_2d() { almofada_2d(); dedos_2d(); }
 
 // Medalha: os feijões alargados 1,6 mm (ficam ligados), o polígono dos centros enche o
 // interior e o fecho de 1,2 mm suaviza as ligações, deixando entalhes entre os dedos.
@@ -50,15 +51,27 @@ module _peca(p) {
 }
 
 // --- REBORDO (opcional) ---
+// rebordo_estilo (só na pata):
+//   "Contorno em todos"               um anel de rebordo_largura em cada feijão (omissão antiga)
+//   "Dedos cheios"                    os 4 dedos cheios, sem nada à volta do nome
+//   "Dedos cheios + contorno do nome" dedos cheios + anel de rebordo_largura na almofada
 rebordo = false;
 rebordo_largura = 1.2;
 rebordo_altura = 1;
-// Na pata o rebordo desenha cada feijão (um anel por feijão; com largura grande ficam cheios).
-module rebordo_corpo_2d() { feijoes_2d(); }
-module rebordo_furo_2d() { translate([0, 18]) circle(r = 2.4, $fn = 72); }
+function _estilo() = is_undef(rebordo_estilo) ? "Contorno em todos" : rebordo_estilo;
+module anel_2d() { difference() { children(); offset(delta = -rebordo_largura) children(); } }
+module rebordo_2d() {
+    if (_estilo() == "Dedos cheios") {
+        dedos_2d();
+    } else if (_estilo() == "Dedos cheios + contorno do nome") {
+        dedos_2d();
+        anel_2d() almofada_2d();
+    } else {
+        anel_2d() feijoes_2d();
+    }
+}
 module _rebordo() if (rebordo)
-    translate([0, 0, altura_fixa]) linear_extrude(height = rebordo_altura)
-        difference() { rebordo_corpo_2d(); offset(delta = -rebordo_largura) rebordo_corpo_2d(); rebordo_furo_2d(); }
+    translate([0, 0, altura_fixa]) linear_extrude(height = rebordo_altura) rebordo_2d();
 
 // --- MULTICOR (pp3d) ---
 // modo: "base" (medalha + argola, com o telefone escavado no verso), "texto" (nome em
