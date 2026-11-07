@@ -2,9 +2,10 @@
  * Guia TXT de impressão para litofânias (plana e curva).
  * ASCII simples (sem acentos) para abrir bem em qualquer editor/slicer.
  */
-export function buildLitofaniaTxt({ curva = false, esfera = false, larguraMm, alturaMm, espMin, espMax, moldura = 0, raio, angulo, diametro, furoLed }) {
+export function buildLitofaniaTxt({ cubo = false, geoCubo = null, curva = false, esfera = false, larguraMm, alturaMm, espMin, espMax, moldura = 0, raio, angulo, diametro, furoLed }) {
   const fmt = (v) => Number(v).toFixed(1);
   const sep = '='.repeat(49);
+  if (cubo && geoCubo) return guiaCubo(geoCubo, fmt, sep);
   const L = [
     sep,
     `  LITOFANIA ${esfera ? 'ESFERA (BOLA DE NATAL)' : curva ? 'CURVA' : 'PLANA'} - Guia de Impressao`,
@@ -65,6 +66,57 @@ export function buildLitofaniaTxt({ curva = false, esfera = false, larguraMm, al
     L.push('    virado para a luz.');
   }
   L.push('  * Sem luz a peca parece quase branca - e normal.');
+  L.push('');
+  L.push(sep);
+  return L.join('\r\n');
+}
+
+function guiaCubo(g, fmt, sep) {
+  const luz = g.luzNome;
+  const L = [
+    sep,
+    '  LITOFANIA CUBO (CANDEEIRO) - Guia de Impressao',
+    sep,
+    '',
+    `  Cubo            : ${fmt(g.L)} x ${fmt(g.L)} mm, paredes com ${fmt(g.H)} mm de altura`,
+    `  Altura montado  : ~${fmt(g.hb + g.H + 3)} mm (base + paredes + tampa)`,
+    `  Imagem por face : ${fmt(g.imgW)} x ${fmt(g.imgH)} mm`,
+    `  Espessura       : ${fmt(g.espMin)} mm (claro) a ${fmt(g.espMax)} mm (escuro)`,
+    `  Luz             : ${luz}`,
+    '',
+    sep,
+    '',
+    '  PECAS (3 ficheiros):',
+    '  1) cubo_paredes_litofania.stl - as 4 fotos. Filamento BRANCO.',
+    '     Imprime DE PE, como sai do ficheiro. Sem suportes.',
+    '     Infill 100%, camada 0.12 mm, paredes exteriores lentas (~40 mm/s).',
+    '     Brim de 5 mm (a peca e alta e fina).',
+    '  2) cubo_base.stl  - encaixe da luz. Cor a gosto (escura evita',
+    '     que a luz passe pela base). Imprime como sai, sem suportes.',
+    '  3) cubo_tampa.stl - imprime com o rebordo para CIMA; ao montar',
+    '     vira-se ao contrario. Mesma cor da base.',
+    '',
+    sep,
+    '',
+    '  MONTAGEM:',
+  ];
+  if (luz.startsWith('LED Kit')) {
+    L.push('  * Disco LED (Bambu Lab LED Lamp Kit-001 ou compativel, 59 mm):');
+    L.push('    passa o cabo pelo furo do centro e pelo canal por baixo da base,');
+    L.push('    e cola o disco no encaixe com a fita de dupla face do kit,');
+    L.push('    com a luz virada para cima.');
+  } else if (luz.startsWith('Casquilho')) {
+    L.push('  * Casquilho E14 com tubo roscado M10: aperta-o ao furo do centro');
+    L.push('    com a porca por baixo; o cabo sai pelo canal por baixo da base.');
+    L.push('  * Usa SEMPRE lampada LED (aquece pouco). Nunca incandescente.');
+  } else {
+    L.push('  * Vela LED (tea light, ~38 mm) no encaixe do centro da base.');
+  }
+  L.push('  * Encaixa as paredes no rebordo da base e poe a tampa por cima.');
+  L.push('    Se ficar folgado, uma gota de cola resolve.');
+  L.push('');
+  L.push('  * A imagem le-se pelo lado de fora (liso). Sem luz parece');
+  L.push('    quase branca - e normal.');
   L.push('');
   L.push(sep);
   return L.join('\r\n');

@@ -19,6 +19,7 @@ import { alinharCamadasHueforge, generateHueforgeStl, generateBookmarkStl, gener
 import { frameImage, aspectForFamily, targetLongPxForFamily, heightFracBeerLambert, litoFracLuz, esferaGeometria } from '../app/image-proc.js';
 import { gerarStlPro, buildHueforgeTxt } from './gerar-stl-pro.js';
 import { buildLitofaniaTxt } from '../app/litofania-guia.js';
+import { gerarParedesCubo } from '../app/litofaniaCubo.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = dirname(__filename);
@@ -72,7 +73,7 @@ export async function gerarStlHueforge(req, res) {
     if (dErr || !design) return res.status(404).json({ error: 'Design não encontrado.' });
 
     const familia = String(design.familia || '').toLowerCase();
-    const JS_FAMILIES = ['hueforge', 'marcadores', 'portachaves', 'litofania', 'litofania-curva', 'litofania-esfera'];
+    const JS_FAMILIES = ['hueforge', 'marcadores', 'portachaves', 'litofania', 'litofania-curva', 'litofania-esfera', 'litofania-cubo'];
     const isJsMode = JS_FAMILIES.includes(familia);
 
     // Produtos não suportados em JS delegam para gerar-stl-pro (OpenSCAD)
@@ -124,6 +125,7 @@ export async function gerarStlHueforge(req, res) {
     // mudar a geometria OU o guia TXT (a cache devolve os dois ficheiros antigos).
     const paramsKey = sha256(JSON.stringify({ v: 7, imagePath, numCores, layerHeight, primeiraCamada,
       esp_min: rest.esp_min, esp_max: rest.esp_max, raio: rest.raio, angulo: rest.angulo, moldura: rest.moldura_mm, diametro: rest.diametro_mm, furo_led: rest.furo_led_mm,
+      lado: rest.lado_mm, luz: rest.luz, img2: rest.image_path_2, img3: rest.image_path_3, img4: rest.image_path_4,
       hole_diameter: rest.hole_diameter, hole_margin_top: rest.hole_margin_top, espBase, altRelevo, larguraMm, alturaMm, contraste, brilho, ajuste, zoom, posX, posY, modoCor, renderMode }));
     const stlFilename = `${produtoId}_hf_${paramsKey}.stl`;
     const folder      = `users/${user.id}/${renderMode}`;
@@ -142,6 +144,22 @@ export async function gerarStlHueforge(req, res) {
         response.txtUrl = td?.signedUrl;
       }
       return res.json(response);
+    }
+
+    // ── Litofânia Cubo: 4 faces (até 4 imagens) — paredes + guia ─────────
+    if (familia === 'litofania-cubo') {
+      const baixarImagem = async (caminho) => {
+        if (!caminho.startsWith(`uploads/${user.id}/`)) { const e = new Error('Imagem inválida.'); e.status = 400; throw e; }
+        const { data, error } = await supabase.storage.from(BUCKET).download(caminho);
+        if (error || !data) throw new Error(`Erro ao descarregar imagem: ${error?.message}`);
+        return Buffer.from(await data.arrayBuffer());
+      };
+      const { stl, geo } = await gerarParedesCubo({ params: rest, baixarImagem, final: renderMode === 'final' });
+      const url = await uploadFile(stlStorage, stl, 'model/stl');
+      if (!url) return res.status(500).json({ error: 'Erro no upload do STL.' });
+      const txt = buildLitofaniaTxt({ cubo: true, geoCubo: geo, espMin: geo.espMin, espMax: geo.espMax });
+      const txtUrl = await uploadFile(`${folder}/${produtoId}_hf_${paramsKey}.txt`, Buffer.from(txt, 'utf8'), 'text/plain');
+      return res.json({ success: true, url, txtUrl, cached: false, mode: renderMode, coresDetectadas: null });
     }
 
     // Descarregar e processar imagem

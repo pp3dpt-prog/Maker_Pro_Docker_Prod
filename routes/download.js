@@ -11,6 +11,7 @@ import { alinharCamadasHueforge, generateHueforgeStl, generateBookmarkStl, gener
 import { frameImage, aspectForFamily, targetLongPxForFamily, heightFracBeerLambert, litoFracLuz, esferaGeometria } from '../app/image-proc.js';
 import { buildHueforgeTxt }   from './gerar-stl-pro.js';
 import { buildLitofaniaTxt } from '../app/litofania-guia.js';
+import { gerarParedesCubo, cuboBaseScad, cuboTampaScad } from '../app/litofaniaCubo.js';
 import { scadVars }           from '../lib/scad.js';
 import { aplicarAjusteTexto } from '../lib/textFit.js';
 import { aplicarLogo } from '../lib/logo.js';
@@ -255,7 +256,8 @@ export async function downloadStl(req, res) {
     // Processar imagem se existir (HueForge e portachaves com imagem)
     const tempImageFiles = [];
     let coresDetectadas = null; // preenchido abaixo em modo_cor; usado no .txt do HueForge mais à frente
-    if (!isVetor && typeof paramsNormalizados.image_path === 'string' && paramsNormalizados.image_path.startsWith('uploads/')) {
+    const isCubo = String(design.familia || '').toLowerCase() === 'litofania-cubo';
+    if (!isVetor && !isCubo && typeof paramsNormalizados.image_path === 'string' && paramsNormalizados.image_path.startsWith('uploads/')) {
       const imgUid = uuid();
       const rawPath  = path.join(TMP_DIR, `img_raw_${imgUid}.png`);
       const procPath = path.join(TMP_DIR, `img_proc_${imgUid}.png`);
@@ -374,7 +376,28 @@ export async function downloadStl(req, res) {
     const isLetras = design.familia === 'letras-decorativas';
     const isCaixaLuz = design.familia === 'letras-caixa-luz';
 
-    if (isVetor) {
+    if (isCubo) {
+      // Litofânia Cubo: paredes (JS) + base e tampa (OpenSCAD) + guia
+      const baixarImagem = async (caminho) => {
+        if (!caminho.startsWith(`uploads/${user.id}/`)) throw new Error('Imagem inválida.');
+        const { data, error } = await supabase.storage.from('makers_pro_stl_prod').download(caminho);
+        if (error || !data) throw new Error(`Erro ao descarregar imagem: ${error?.message}`);
+        return Buffer.from(await data.arrayBuffer());
+      };
+      const { stl, geo } = await gerarParedesCubo({ params: paramsNormalizados, baixarImagem, final: true });
+      const paredesPath = `${base}_paredes.stl`;
+      await fsp.writeFile(paredesPath, stl);
+      files.push({ name: 'cubo_paredes_litofania.stl', path: paredesPath });
+      const basePath = `${base}_base.stl`;
+      await gerarSTL({ scadTemplate: cuboBaseScad(geo), params: {}, outFile: basePath });
+      files.push({ name: 'cubo_base.stl', path: basePath });
+      const tampaPath = `${base}_tampa.stl`;
+      await gerarSTL({ scadTemplate: cuboTampaScad(geo), params: {}, outFile: tampaPath });
+      files.push({ name: 'cubo_tampa.stl', path: tampaPath });
+      const guiaPath = `${base}_guia.txt`;
+      await fsp.writeFile(guiaPath, buildLitofaniaTxt({ cubo: true, geoCubo: geo, espMin: geo.espMin, espMax: geo.espMax }), 'ascii');
+      files.push({ name: 'guia_cubo_litofania.txt', path: guiaPath });
+    } else if (isVetor) {
       const nomeBase = String(design.nome || 'porta-chaves').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').toLowerCase() || 'porta-chaves';
       for (const f of await gerarFicheirosVetor(paramsNormalizados.image_path, paramsNormalizados, nomeBase)) {
         const p = `${base}_${f.name}`;

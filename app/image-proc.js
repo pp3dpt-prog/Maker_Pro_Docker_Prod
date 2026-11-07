@@ -208,3 +208,17 @@ export function esferaGeometria(p) {
   const A = Math.max(30, Math.min(360, Number(p.angulo ?? 360))) * deg;
   return { R, furo, phiCut, phi1, phi2, A };
 }
+
+/**
+ * Litofânia: imagem Jimp crua → heightmap (frações 0..1, 1 = mais fino/claro)
+ * com o mesmo pipeline das outras litofânias: enquadrar (ajuste/zoom/posição),
+ * cinzento, auto-contraste e curva de luz (litoFracLuz).
+ */
+export async function heightmapLitofania(rawImg, { targetLong, aspect, fit = 'Preencher', zoom = 100, posX = 0, posY = 0, espMin = 0.6, espMax = 3.0 }) {
+  const img = await frameImage(rawImg, { targetLong, aspect, fit, zoom, posX, posY });
+  img.grayscale();
+  img.normalize();
+  const w = img.getWidth(), h = img.getHeight(), d = img.bitmap.data;
+  return Array.from({ length: h }, (_, r) =>
+    Array.from({ length: w }, (_, c) => litoFracLuz(d[(r * w + c) * 4], espMin, espMax)));
+}
