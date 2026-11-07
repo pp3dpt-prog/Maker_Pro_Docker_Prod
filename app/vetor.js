@@ -235,6 +235,48 @@ export function caminhoParaAneis(dAttr) {
   return aneis;
 }
 
+/**
+ * Ramer–Douglas–Peucker: reduz um anel [x0,y0,x1,y1,…] (píxeis) a menos
+ * pontos, sem o afastar mais de tolPx de si próprio. As curvas do potrace
+ * são subdivididas em segmentos curtos (ver caminhoParaAneis) — em desenhos
+ * detalhados isto produz dezenas de milhares de pontos, o que torna as
+ * operações de Clipper a jusante (vetorGeom.js) lentas a ponto de rebentar
+ * o tempo limite do pedido. tolPx=1,5 ainda é impercetível numa peça
+ * impressa (um nozzle de 0,4 mm já não resolve isso), mesmo em peças
+ * grandes (Caixa de Luz) onde a escala mm/px é maior.
+ */
+function simplificarAnel(pts, tolPx) {
+  const n = pts.length / 2;
+  if (n <= 3) return pts;
+  const manter = new Uint8Array(n);
+  manter[0] = 1; manter[n - 1] = 1;
+  const pilha = [[0, n - 1]];
+  const tol2 = tolPx * tolPx;
+  while (pilha.length) {
+    const [i0, i1] = pilha.pop();
+    if (i1 <= i0 + 1) continue;
+    const ax = pts[i0 * 2], ay = pts[i0 * 2 + 1], bx = pts[i1 * 2], by = pts[i1 * 2 + 1];
+    const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
+    let maxD = -1, maxI = -1;
+    for (let i = i0 + 1; i < i1; i++) {
+      const px = pts[i * 2], py = pts[i * 2 + 1];
+      let d2;
+      if (len2 === 0) d2 = (px - ax) ** 2 + (py - ay) ** 2;
+      else {
+        let t = ((px - ax) * dx + (py - ay) * dy) / len2;
+        t = Math.max(0, Math.min(1, t));
+        d2 = (px - (ax + t * dx)) ** 2 + (py - (ay + t * dy)) ** 2;
+      }
+      if (d2 > maxD) { maxD = d2; maxI = i; }
+    }
+    if (maxD > tol2) { manter[maxI] = 1; pilha.push([i0, maxI]); pilha.push([maxI, i1]); }
+  }
+  const out = [];
+  for (let i = 0; i < n; i++) if (manter[i]) out.push(pts[i * 2], pts[i * 2 + 1]);
+  return out;
+}
+const SIMPLIFICAR_TOL_PX = 1.5;
+
 async function tracar(mascara, W, H) {
   const img = new Jimp(W, H, 0xffffffff);
   const d = img.bitmap.data;
@@ -244,7 +286,8 @@ async function tracar(mascara, W, H) {
   await new Promise((res, rej) => p.loadImage(buf, (e) => (e ? rej(e) : res())));
   const tag = p.getPathTag();
   const m = /\sd="([^"]*)"/.exec(tag);
-  return m ? caminhoParaAneis(m[1]) : [];
+  if (!m) return [];
+  return caminhoParaAneis(m[1]).map(a => simplificarAnel(a, SIMPLIFICAR_TOL_PX));
 }
 
 // ── Âncoras para o furo ──────────────────────────────────────────────────────
