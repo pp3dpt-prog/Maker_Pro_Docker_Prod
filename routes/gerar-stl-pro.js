@@ -7,6 +7,7 @@
  */
 
 import { tipoDesign } from '../lib/tipoDesign.js';
+import { GERADORES_ILUMINARIA, gerarIluminaria } from '../app/iluminarias.js';
 import fs   from 'fs';
 import fsp  from 'fs/promises';
 import path from 'path';
@@ -428,6 +429,17 @@ export async function gerarStlPro(req, res) {
 
     if (dErr || !design) {
       return res.status(404).json({ error: 'Design não encontrado.' });
+    }
+
+    // ── Iluminárias (gerador JS, sem template OpenSCAD) ─────────────────
+    if (GERADORES_ILUMINARIA.includes(tipoDesign(design))) {
+      const modo = String(mode || 'preview').toLowerCase() === 'preview' ? 'preview' : 'final';
+      const { stl } = gerarIluminaria(tipoDesign(design), params, { final: modo === 'final' });
+      const hash = sha256(`${produtoId}|ilum-v1|${stableJson(params)}|${modo}`);
+      const storagePath = `${STL_FOLDER}/${user.id}/${modo}/${produtoId}_${hash}.stl`;
+      const url = await uploadFile(BUCKET, storagePath, stl, 'model/stl');
+      if (!url) return res.status(500).json({ error: 'Erro no upload do STL.' });
+      return res.json({ success: true, url, cached: false, mode: modo });
     }
 
     const templateText = String(design.scad_template || '').trim();

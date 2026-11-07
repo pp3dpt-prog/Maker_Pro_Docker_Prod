@@ -13,6 +13,7 @@ import { buildHueforgeTxt }   from './gerar-stl-pro.js';
 import { buildLitofaniaTxt } from '../app/litofania-guia.js';
 import { gerarParedesCubo, cuboBaseScad, cuboTampaScad } from '../app/litofaniaCubo.js';
 import { tipoDesign } from '../lib/tipoDesign.js';
+import { GERADORES_ILUMINARIA, gerarIluminaria } from '../app/iluminarias.js';
 import { scadVars }           from '../lib/scad.js';
 import { aplicarAjusteTexto } from '../lib/textFit.js';
 import { aplicarLogo } from '../lib/logo.js';
@@ -379,7 +380,19 @@ export async function downloadStl(req, res) {
     const isLetras = tipo === 'letras-decorativas';
     const isCaixaLuz = tipo === 'letras-caixa-luz';
 
-    if (isCubo) {
+    if (GERADORES_ILUMINARIA.includes(tipo)) {
+      // Iluminárias: peça (JS) + base (OpenSCAD) + guia
+      const { stl, scad, txt } = gerarIluminaria(tipo, paramsNormalizados, { final: true });
+      const pecaPath = `${base}_iluminaria.stl`;
+      await fsp.writeFile(pecaPath, stl);
+      files.push({ name: 'iluminaria.stl', path: pecaPath });
+      const basePath = `${base}_base.stl`;
+      await gerarSTL({ scadTemplate: scad, params: {}, outFile: basePath });
+      files.push({ name: 'base.stl', path: basePath });
+      const guiaPath = `${base}_guia.txt`;
+      await fsp.writeFile(guiaPath, txt, 'utf8');
+      files.push({ name: 'guia_iluminaria.txt', path: guiaPath });
+    } else if (isCubo) {
       // Litofânia Cubo: paredes (JS) + base e tampa (OpenSCAD) + guia
       const baixarImagem = async (caminho) => {
         if (!caminho.startsWith(`uploads/${user.id}/`)) throw new Error('Imagem inválida.');
