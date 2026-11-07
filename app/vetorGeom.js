@@ -81,7 +81,7 @@ function offset(paths, mm) {
 }
 
 /** Remove ilhas e buracos com área < minMm2. */
-function limparPequenos(paths, minMm2) {
+export function limparPequenos(paths, minMm2) {
   if (minMm2 <= 0) return paths;
   const min = minMm2 * ESC * ESC;
   return uniao(paths.filter(p => Math.abs(C.Clipper.Area(p)) >= min));

@@ -19,7 +19,7 @@
  * (ver guiaCaixaLuzLogo).
  */
 import ClipperLib from 'clipper-lib';
-import { construirPecas, fatiasParaTriangulos } from './vetorGeom.js';
+import { construirPecas, fatiasParaTriangulos, limparPequenos } from './vetorGeom.js';
 
 const ESC = 1000;
 const C = ClipperLib;
@@ -157,7 +157,13 @@ export function construirCaixaLuzLogo(vetor, params) {
     const cores = r.pecas.slice(1);
     if (p.modo !== 'ams' && p.metodo === 'pecas') {
       const f2 = p.folga / 2;
-      const encaixes = uniao(cores.flatMap(pc => offset(pc.fatias[0]?.regiao ?? [], f2)));
+      // Com forma fixa, estes encaixes ficam espalhados num círculo/quadrado
+      // bem maior que a arte: cada mancha de cor isolada vira um buraco
+      // separado na frente (centenas delas, em imagens com ruído), e
+      // triangular um polígono com milhares de buracos é extremamente lento
+      // (earcut escala mal com o nº de buracos). limparPequenos usa o mesmo
+      // limiar (detalhe_min) já aplicado às manchas de cor noutro sítio.
+      const encaixes = limparPequenos(uniao(cores.flatMap(pc => offset(pc.fatias[0]?.regiao ?? [], f2))), Math.max(p.detalhe_min, 0.01));
       r.pecas[0] = { ...r.pecas[0], fatias: [
         { z0: 0, z1: p.espessura_base - p.encaixe, regiao: fronteira },
         { z0: p.espessura_base - p.encaixe, z1: p.espessura_base, regiao: diferenca(fronteira, encaixes) },
