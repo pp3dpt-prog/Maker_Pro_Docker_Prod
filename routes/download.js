@@ -7,8 +7,8 @@ import { v4 as uuid } from 'uuid';
 import { createClient } from '@supabase/supabase-js';
 import { PassThrough } from 'stream';
 import Jimp from 'jimp';
-import { alinharCamadasHueforge, generateHueforgeStl, generateBookmarkStl, generateLithophaneFlatStl, generateLithophaneCurvedStl } from '../app/hueforge-stl.js';
-import { frameImage, aspectForFamily, targetLongPxForFamily, heightFracBeerLambert, litoFracLuz } from '../app/image-proc.js';
+import { alinharCamadasHueforge, generateHueforgeStl, generateBookmarkStl, generateLithophaneFlatStl, generateLithophaneCurvedStl, generateLithophaneSphereStl } from '../app/hueforge-stl.js';
+import { frameImage, aspectForFamily, targetLongPxForFamily, heightFracBeerLambert, litoFracLuz, esferaGeometria } from '../app/image-proc.js';
 import { buildHueforgeTxt }   from './gerar-stl-pro.js';
 import { buildLitofaniaTxt } from '../app/litofania-guia.js';
 import { scadVars }           from '../lib/scad.js';
@@ -368,7 +368,7 @@ export async function downloadStl(req, res) {
     const base = path.join(TMP_DIR, jobId);
     const files = [];
 
-    const JS_FAMILIES_DL = ['hueforge', 'marcadores', 'portachaves', 'litofania', 'litofania-curva'];
+    const JS_FAMILIES_DL = ['hueforge', 'marcadores', 'portachaves', 'litofania', 'litofania-curva', 'litofania-esfera'];
     const isHueforgeFamily = JS_FAMILIES_DL.includes(String(design.familia || '').toLowerCase());
     const isCaixa = design.familia === 'caixas';
     const isLetras = design.familia === 'letras-decorativas';
@@ -419,6 +419,11 @@ export async function downloadStl(req, res) {
           espMax:  Number(paramsNormalizados.esp_max ?? 3.0),
           espMin:  Number(paramsNormalizados.esp_min ?? 0.6),
           moldura: Number(paramsNormalizados.moldura_mm ?? 3) });
+      } else if (familiaLower === 'litofania-esfera') {
+        stlBuffer = generateLithophaneSphereStl({ heightmap,
+          geo:    esferaGeometria(paramsNormalizados),
+          espMax: Number(paramsNormalizados.esp_max ?? 3.0),
+          espMin: Number(paramsNormalizados.esp_min ?? 0.6) });
       } else if (familiaLower === 'litofania-curva') {
         stlBuffer = generateLithophaneCurvedStl({ heightmap,
           alturaMm: Number(paramsNormalizados.altura_mm ?? 150),
@@ -443,6 +448,9 @@ export async function downloadStl(req, res) {
       if (familiaLower.startsWith('litofania')) {
         const litoTxt = buildLitofaniaTxt({
           curva: familiaLower === 'litofania-curva',
+          esfera: familiaLower === 'litofania-esfera',
+          diametro: Number(paramsNormalizados.diametro_mm ?? 80),
+          furoLed:  Number(paramsNormalizados.furo_led_mm ?? 40),
           larguraMm: Number(paramsNormalizados.largura_mm ?? 150),
           alturaMm:  Number(paramsNormalizados.altura_mm  ?? 150),
           espMin:    Number(paramsNormalizados.esp_min ?? 0.6),

@@ -344,6 +344,120 @@ export function generateLithophaneCurvedStl({ heightmap, alturaMm, raio, angulo,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Litofânia Esfera — bola de Natal
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Esfera oca com a imagem numa faixa à volta do equador (ver esferaGeometria
+ * em image-proc.js). Em baixo um corte plano com furo para a vela LED (assenta
+ * na base da impressora); em cima um topo maciço e uma argola para pendurar.
+ * Imprime de pé e sem suportes: as zonas com grande inclinação (topo e fundo)
+ * têm parede grossa; as paredes finas da imagem ficam na zona quase vertical.
+ *
+ * Vista de fora pela frente (−y) a imagem lê-se direita: longitude λ cresce
+ * para a direita (+x), linha 0 do heightmap = topo da faixa.
+ */
+export function generateLithophaneSphereStl({ heightmap, geo, espMax, espMin }) {
+  const { R, phiCut, phi1, phi2, A } = geo;
+  const rows = heightmap.length, cols = heightmap[0].length;
+  const completo = A >= 2 * Math.PI - 1e-6;
+  const capT = Math.max(espMax, 3);
+  const deg = Math.PI / 180;
+
+  // Grelha: longitude com o passo da imagem; latitude do corte até junto ao polo
+  const dPhiImg = (phi2 - phi1) / Math.max(1, rows - 1);
+  const NL = Math.min(900, Math.max(48, completo ? cols : Math.round(cols * 2 * Math.PI / A)));
+  const nLat = Math.max(8, Math.ceil((Math.PI / 2 - phiCut) / dPhiImg));
+  const phis = Array.from({ length: nLat }, (_, i) => phiCut + i * (Math.PI / 2 - phiCut) / nLat);
+  const lams = Array.from({ length: NL }, (_, j) => -Math.PI + j * 2 * Math.PI / NL);
+
+  const amostra = (lam, phi) => {
+    // posição contínua na imagem
+    let u;
+    if (completo) {
+      u = ((lam + Math.PI) / (2 * Math.PI)) * cols;
+    } else {
+      if (Math.abs(lam) > A / 2) return null;
+      u = ((lam + A / 2) / A) * (cols - 1);
+    }
+    const v = ((phi2 - phi) / (phi2 - phi1)) * (rows - 1);
+    const r0 = Math.max(0, Math.min(rows - 1, Math.floor(v))), r1 = Math.min(rows - 1, r0 + 1);
+    const fv = Math.max(0, Math.min(1, v - r0));
+    let c0 = Math.floor(u), fu = u - c0, c1 = c0 + 1;
+    if (completo) { c0 = ((c0 % cols) + cols) % cols; c1 = c1 % cols; }
+    else { c0 = Math.max(0, Math.min(cols - 1, c0)); c1 = Math.min(cols - 1, c1); }
+    const a = heightmap[r0][c0] * (1 - fu) + heightmap[r0][c1] * fu;
+    const b = heightmap[r1][c0] * (1 - fu) + heightmap[r1][c1] * fu;
+    return a * (1 - fv) + b * fv;
+  };
+  const esp = (lam, phi) => {
+    if (phi > phi2) {
+      const s = Math.min(1, (phi - phi2) / (15 * deg));
+      return espMax + (capT - espMax) * s;
+    }
+    if (phi < phi1) return espMax;
+    const f = amostra(lam, phi);
+    return f === null ? espMax : espMin + (1 - f) * (espMax - espMin);
+  };
+
+  const zCut = R * Math.sin(phiCut);
+  const dz = -zCut;                          // corte em z = 0
+  const P = (rad, lam, phi) => [rad * Math.cos(phi) * Math.sin(lam), -rad * Math.cos(phi) * Math.cos(lam), rad * Math.sin(phi) + dz];
+
+  const outer = phis.map(phi => lams.map(lam => P(R, lam, phi)));
+  const inner = phis.map((phi, i) => lams.map(lam => {
+    const t = esp(lam, phi);
+    if (i === 0) {   // anel de baixo plano (mesmo z do exterior)
+      const rr = R * Math.cos(phiCut) - t;
+      return [rr * Math.sin(lam), -rr * Math.cos(lam), 0];
+    }
+    return P(R - t, lam, phi);
+  }));
+  const poloExt = [0, 0, R + dz];
+  const poloInt = [0, 0, R - capT + dz];
+
+  // Argola (toro vertical, furo de frente para trás), meio enterrada no topo
+  const tMaj = 4.5, tMin = 1.6, U = 40, V = 16;
+  const cz = R - 1.6 + tMaj + tMin + dz;
+  const toro = (u, v) => {
+    const cu = Math.cos(u), su = Math.sin(u);
+    const rr = tMaj + tMin * Math.cos(v);
+    return [rr * cu, tMin * Math.sin(v), cz + rr * su];
+  };
+
+  const nTri = 2 * (2 * (nLat - 1) * NL + NL) + 2 * NL + 2 * U * V;
+  const stl = new EscritorStl(nTri);
+
+  for (let i = 0; i < nLat - 1; i++) {
+    for (let j = 0; j < NL; j++) {
+      const k = (j + 1) % NL;
+      const a = outer[i][j], b = outer[i][k], c = outer[i + 1][k], d = outer[i + 1][j];
+      stl.tri(a, b, c); stl.tri(a, c, d);                          // exterior (normal para fora)
+      const ai = inner[i][j], bi = inner[i][k], ci = inner[i + 1][k], di = inner[i + 1][j];
+      stl.tri(ai, ci, bi); stl.tri(ai, di, ci);                    // interior (normal para dentro)
+    }
+  }
+  const L = nLat - 1;
+  for (let j = 0; j < NL; j++) {
+    const k = (j + 1) % NL;
+    stl.tri(outer[L][j], outer[L][k], poloExt);                    // tampa exterior
+    stl.tri(inner[L][j], poloInt, inner[L][k]);                    // tecto interior
+    // anel de baixo (normal −z)
+    stl.tri(outer[0][j], inner[0][j], inner[0][k]);
+    stl.tri(outer[0][j], inner[0][k], outer[0][k]);
+  }
+  for (let a = 0; a < U; a++) {
+    for (let b = 0; b < V; b++) {
+      const u0 = (a / U) * 2 * Math.PI, u1 = ((a + 1) / U) * 2 * Math.PI;
+      const v0 = (b / V) * 2 * Math.PI, v1 = ((b + 1) / V) * 2 * Math.PI;
+      const p00 = toro(u0, v0), p10 = toro(u1, v0), p11 = toro(u1, v1), p01 = toro(u0, v1);
+      stl.tri(p00, p11, p10); stl.tri(p00, p01, p11);
+    }
+  }
+  return stl.fim();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Helpers internos
 // ─────────────────────────────────────────────────────────────────────────────
 

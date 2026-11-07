@@ -87,6 +87,9 @@ export function targetLongPxForFamily(familia, p, { pxPerMm = 5, maxGridPx = 600
     const altura = Number(p.altura_mm ?? 150);
     const arco   = raio * (angulo * Math.PI / 180);
     longoMm = Math.max(arco, altura);
+  } else if (f === 'litofania-esfera') {
+    const g = esferaGeometria(p);
+    longoMm = Math.max(g.R * g.A, g.R * (g.phi2 - g.phi1));
   } else if (f === 'portachaves') {
     longoMm = Math.max(Number(p.largura ?? p.largura_mm ?? 55), Number(p.altura ?? p.altura_mm ?? 35));
   } else {
@@ -149,6 +152,10 @@ export function aspectForFamily(familia, p) {
     const altura = Number(p.altura_mm ?? 150);
     return (raio * (angulo * Math.PI / 180)) / altura;
   }
+  if (f === 'litofania-esfera') {
+    const g = esferaGeometria(p);
+    return g.A / (g.phi2 - g.phi1);
+  }
   // hueforge, marcadores, litofania
   const lw = Number(p.largura_mm ?? 100);
   const lh = Number(p.altura_mm  ?? 100);
@@ -180,4 +187,24 @@ export function litoFracLuz(gray255, espMin, espMax, K = LITO_K_PLA_BRANCO) {
   const alvo = tMin + luz * (tMax - tMin);
   const esp  = -Math.log(alvo) / K;
   return Math.min(1, Math.max(0, (eMax - esp) / (eMax - eMin)));
+}
+
+/**
+ * Litofânia esfera (bola de Natal): geometria comum ao gerador STL, ao
+ * enquadramento da imagem e (replicada) à pré-visualização do frontend.
+ * Ângulos em radianos; latitude 0 = equador, +90° = topo.
+ *  - phiCut: corte plano em baixo (furo para a vela LED, assenta na base)
+ *  - phi1..phi2: faixa com a imagem (zona quase vertical → paredes finas
+ *    imprimem bem sem suportes); fora dela a parede é grossa
+ *  - A: ângulo horizontal ocupado pela imagem (2π = toda a volta)
+ */
+export function esferaGeometria(p) {
+  const deg = Math.PI / 180;
+  const R = Math.max(25, Math.min(75, Number(p.diametro_mm ?? 80) / 2));
+  const furo = Math.max(10, Math.min(1.7 * R, Number(p.furo_led_mm ?? 40)));
+  const phiCut = -Math.acos(Math.min(0.99, furo / 2 / R));
+  const phi1 = Math.max(-30 * deg, phiCut + 6 * deg);
+  const phi2 = 40 * deg;
+  const A = Math.max(30, Math.min(360, Number(p.angulo ?? 360))) * deg;
+  return { R, furo, phiCut, phi1, phi2, A };
 }
