@@ -239,15 +239,19 @@ export function buildHueforgeTxt({ numCores, layerHeight, espessuraBase, alturaR
   // Sem isto (modo P&B), o guia fica genérico como antes.
   const cor = (i) => coresDetectadas?.[i - 1] ? `  [${coresDetectadas[i - 1]}]` : '';
 
-  const lh            = layerHeight;
-  const layersBase    = Math.ceil(espessuraBase / lh);
-  // A geometria quantiza em numCores NÍVEIS, ou seja numCores-1 SALTOS de altura
-  // (ex: 4 cores = 4 níveis = 3 saltos) — tem de dividir por (numCores-1), não
-  // por numCores, senão as alturas de troca de cor não batem com o relevo real.
-  const niveis        = Math.max(1, numCores - 1);
-  const layersPerClr  = Math.max(1, Math.ceil((alturaRelevo / niveis) / lh));
-  const totalLayers   = layersBase + (numCores - 1) * layersPerClr;
-  const sep           = '='.repeat(49);
+  const lh = layerHeight;
+  // Geometria (hueforge-stl.js): altura = base + fração × relevo, com a fração
+  // dividida em (numCores−1) bandas iguais. A cor 1 é a base; a cor i (i ≥ 2)
+  // começa no início da banda i−2, ou seja a  base + (i−2) × relevo/(numCores−1).
+  // (Antes começava uma banda acima → a última cor ficava acima do topo da peça.)
+  const niveis      = Math.max(1, numCores - 1);
+  const bandaMm     = alturaRelevo / niveis;
+  const camadasBand = bandaMm / lh;
+  const totalLayers = Math.round((espessuraBase + alturaRelevo) / lh);
+  const fmt = (v) => v.toFixed(2);
+  // camada (numeração do slicer, 1 = primeira) que começa à altura z
+  const camadaEm = (z) => Math.round(z / lh) + 1;
+  const sep = '='.repeat(49);
 
   const L = [
     sep,
@@ -259,25 +263,29 @@ export function buildHueforgeTxt({ numCores, layerHeight, espessuraBase, alturaR
     `  Numero de cores : ${numCores}`,
     `  Espessura base  : ${espessuraBase} mm`,
     `  Altura do relevo: ${alturaRelevo} mm`,
-    `  Total de camadas: ~${totalLayers}`,
+    `  Altura total    : ${fmt(espessuraBase + alturaRelevo)} mm  (~${totalLayers} camadas)`,
     '',
     sep,
     '',
     `  COR 1  (mais escura - carrega antes de iniciar)${cor(1)}`,
-    `    -> Camadas 1 ate ${layersBase + layersPerClr - 1}`,
+    `    -> Base e inicio: dos 0 aos ${fmt(espessuraBase)} mm`,
     '',
   ];
 
   for (let i = 2; i <= numCores; i++) {
-    const changeAt = layersBase + (i - 2) * layersPerClr + layersPerClr;
-    const heightMm = (changeAt * lh).toFixed(2);
+    const z0 = espessuraBase + (i - 2) * bandaMm;
+    const z1 = espessuraBase + (i - 1) * bandaMm;
+    const camada = camadaEm(z0);
     L.push(`  COR ${i}${i === numCores ? '  (mais clara)' : ''}${cor(i)}`);
-    L.push(`    -> Para na camada ${changeAt}  (altura ~ ${heightMm} mm)`);
-    L.push(`    -> Troca o filamento e retoma`);
-    if (i < numCores) L.push(`    -> Dura ate a camada ${changeAt + layersPerClr - 1}`);
+    L.push(`    -> Troca aos ${fmt(z0)} mm: pausa ANTES da camada ${camada}`);
+    L.push(`       (no Bambu Studio / Orca e a camada que mostra Z = ${fmt(camada * lh)} mm)`);
+    L.push(i < numCores
+      ? `    -> Imprime ate aos ${fmt(z1)} mm`
+      : `    -> Imprime ate ao fim (${fmt(z1)} mm)`);
     L.push('');
   }
 
+  const layersPerClr = Math.floor(camadasBand);
   const RECOMENDADA_LH = 0.12;
   L.push(sep);
   L.push('');
@@ -300,7 +308,8 @@ export function buildHueforgeTxt({ numCores, layerHeight, espessuraBase, alturaR
   L.push('  DICAS:');
   L.push('  * Usa "Pause at Layer" no Bambu Studio / Orca / PrusaSlicer, ou M600.');
   L.push('  * Cor 1 = mais escura  |  Cor N = mais clara.');
-  L.push('  * As camadas podem variar +/-1-2 conforme o slicer.');
+  L.push('  * Se a 1.a camada for mais alta (ex. 0.2 mm), guia-te pela altura em mm,');
+  L.push('    nao pelo numero da camada.');
   L.push('');
   L.push(sep);
 
