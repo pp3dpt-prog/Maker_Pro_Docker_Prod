@@ -154,3 +154,30 @@ export function aspectForFamily(familia, p) {
   const lh = Number(p.altura_mm  ?? 100);
   return lw / lh;
 }
+
+/**
+ * Litofânia: fração 0..1 (1 = mais fino/claro) para um tom de cinzento, pela
+ * física da transmissão de luz — e não por uma rampa linear.
+ *
+ * A luz que atravessa o plástico cai de forma exponencial com a espessura
+ * (Beer-Lambert: T = e^(−K·t)), e o tom da foto (sRGB) não é proporcional à
+ * luz (gama ≈ 2.2). Com a rampa linear antiga os tons médios saíam escuros
+ * demais. Aqui: tom → luz linear → transmissão-alvo entre a da espessura
+ * máxima e a da mínima → espessura que a produz.
+ *
+ * K ≈ 1.2/mm é uma aproximação para PLA branco comum (sem calibração real).
+ *
+ * Devolve f tal que  espessura = espMin + (1 − f)·(espMax − espMin)
+ * (é o que generateLithophaneFlatStl/CurvedStl fazem com o heightmap).
+ */
+export const LITO_K_PLA_BRANCO = 1.2;
+export function litoFracLuz(gray255, espMin, espMax, K = LITO_K_PLA_BRANCO) {
+  const eMin = Math.max(0.1, Number(espMin) || 0.6);
+  const eMax = Math.max(eMin + 0.1, Number(espMax) || 3.0);
+  const luz  = Math.pow(Math.min(255, Math.max(0, gray255)) / 255, 2.2);
+  const tMax = Math.exp(-K * eMin);   // transmissão na zona mais fina
+  const tMin = Math.exp(-K * eMax);   // transmissão na zona mais grossa
+  const alvo = tMin + luz * (tMax - tMin);
+  const esp  = -Math.log(alvo) / K;
+  return Math.min(1, Math.max(0, (eMax - esp) / (eMax - eMin)));
+}

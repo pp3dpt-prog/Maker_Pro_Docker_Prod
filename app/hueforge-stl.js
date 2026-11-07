@@ -233,7 +233,25 @@ export function generateBookmarkStl({ heightmap, largura, altura, espBase, altRe
 // Litofânia Plana — heightmap subtrativo (escuro=espesso, claro=fino)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function generateLithophaneFlatStl({ heightmap, largura, altura, espMax, espMin }) {
+export function generateLithophaneFlatStl({ heightmap: hmImagem, largura: largImg, altura: altImg, espMax, espMin, moldura = 0 }) {
+  // Moldura: anel à volta da imagem com a espessura máxima (heightmap = 0),
+  // acrescentado POR FORA — a imagem mantém largura×altura e a peça cresce
+  // 2×moldura em cada direção. Dá rigidez e esconde a borda fina e frágil.
+  const r0 = hmImagem.length, c0 = hmImagem[0].length;
+  const cellX = largImg / Math.max(1, c0 - 1), cellY = altImg / Math.max(1, r0 - 1);
+  const pX = moldura > 0 ? Math.max(1, Math.round(moldura / cellX)) : 0;
+  const pY = moldura > 0 ? Math.max(1, Math.round(moldura / cellY)) : 0;
+  const heightmap = (pX || pY)
+    ? Array.from({ length: r0 + 2 * pY }, (_, r) => {
+        const linha = new Array(c0 + 2 * pX).fill(0);
+        const ri = r - pY;
+        if (ri >= 0 && ri < r0) for (let c = 0; c < c0; c++) linha[c + pX] = hmImagem[ri][c];
+        return linha;
+      })
+    : hmImagem;
+  const largura = largImg + 2 * pX * cellX;
+  const altura  = altImg  + 2 * pY * cellY;
+
   const rows = heightmap.length;
   const cols = heightmap[0].length;
   const scaleX = largura / Math.max(1, cols - 1);

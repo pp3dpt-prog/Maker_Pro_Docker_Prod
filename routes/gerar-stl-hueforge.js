@@ -16,8 +16,9 @@ import { dirname }       from 'path';
 import Jimp from 'jimp';
 
 import { alinharCamadasHueforge, generateHueforgeStl, generateBookmarkStl, generateLithophaneFlatStl, generateLithophaneCurvedStl } from '../app/hueforge-stl.js';
-import { frameImage, aspectForFamily, targetLongPxForFamily, heightFracBeerLambert } from '../app/image-proc.js';
+import { frameImage, aspectForFamily, targetLongPxForFamily, heightFracBeerLambert, litoFracLuz } from '../app/image-proc.js';
 import { gerarStlPro, buildHueforgeTxt } from './gerar-stl-pro.js';
+import { buildLitofaniaTxt } from '../app/litofania-guia.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = dirname(__filename);
@@ -121,7 +122,9 @@ export async function gerarStlHueforge(req, res) {
 
     // Hash para cache — inclui ajustes + modo de cor + versão. Subir "v" sempre que
     // mudar a geometria OU o guia TXT (a cache devolve os dois ficheiros antigos).
-    const paramsKey = sha256(JSON.stringify({ v: 6, imagePath, numCores, layerHeight, primeiraCamada, espBase, altRelevo, larguraMm, alturaMm, contraste, brilho, ajuste, zoom, posX, posY, modoCor, renderMode }));
+    const paramsKey = sha256(JSON.stringify({ v: 7, imagePath, numCores, layerHeight, primeiraCamada,
+      esp_min: rest.esp_min, esp_max: rest.esp_max, raio: rest.raio, angulo: rest.angulo, moldura: rest.moldura_mm,
+      hole_diameter: rest.hole_diameter, hole_margin_top: rest.hole_margin_top, espBase, altRelevo, larguraMm, alturaMm, contraste, brilho, ajuste, zoom, posX, posY, modoCor, renderMode }));
     const stlFilename = `${produtoId}_hf_${paramsKey}.stl`;
     const folder      = `users/${user.id}/${renderMode}`;
     const stlStorage  = `${folder}/${stlFilename}`;
@@ -220,12 +223,14 @@ export async function gerarStlHueforge(req, res) {
       // baixo contraste não saiam todas no mesmo nível (relevo plano).
       img.grayscale();
       img.normalize();
-      // Litofânias: espessura proporcional ao tom (rampa contínua). As bandas
+      // Litofânias: espessura pela transmissão de luz (litoFracLuz). As bandas
       // Beer-Lambert são para o HueForge (trocas de filamento por camada).
       const lito = String(familia || '').toLowerCase().startsWith('litofania');
       img.scan(0, 0, w, h, function (x, y, idx) {
         const gray = this.bitmap.data[idx];
-        const q    = lito ? gray : Math.round(heightFracBeerLambert(gray, n) * 255);
+        const q    = lito
+            ? Math.round(litoFracLuz(gray, rest.esp_min ?? 0.6, rest.esp_max ?? 3.0) * 255)
+            : Math.round(heightFracBeerLambert(gray, n) * 255);
         this.bitmap.data[idx] = this.bitmap.data[idx+1] = this.bitmap.data[idx+2] = q;
       });
     }
@@ -260,21 +265,30 @@ export async function gerarStlHueforge(req, res) {
       });
     } else if (familia === 'litofania') {
       stlBuffer = generateLithophaneFlatStl({ heightmap, largura: larguraMm, altura: alturaMm,
-        espMax: Number(rest.esp_max ?? 3.0), espMin: Number(rest.esp_min ?? 0.8) });
+        espMax: Number(rest.esp_max ?? 3.0), espMin: Number(rest.esp_min ?? 0.6),
+        moldura: Number(rest.moldura_mm ?? 3) });
     } else if (familia === 'litofania-curva') {
       stlBuffer = generateLithophaneCurvedStl({ heightmap, alturaMm,
         raio: Number(rest.raio ?? 50), angulo: Number(rest.angulo ?? 270),
-        espMax: Number(rest.esp_max ?? 3.0), espMin: Number(rest.esp_min ?? 0.8) });
+        espMax: Number(rest.esp_max ?? 3.0), espMin: Number(rest.esp_min ?? 0.6) });
     } else {
       stlBuffer = generateHueforgeStl({ heightmap, largura: larguraMm, altura: alturaMm, espBase, altRelevo });
     }
     const stlUrl    = await uploadFile(stlStorage, stlBuffer, 'model/stl');
     if (!stlUrl) return res.status(500).json({ error: 'Erro no upload do STL.' });
 
-    const response = { success: true, url: stlUrl, cached: false, mode: renderMode, coresDetectadas };
+    const response = { success: true, url: stlUrl, cached: false, mode: renderMode, coresDetectadas: familia.startsWith('litofania') ? null : coresDetectadas };
 
-    // Gerar TXT HueForge
-    const txtContent  = buildHueforgeTxt({ numCores, layerHeight, primeiraCamada, espessuraBase: espBase, alturaRelevo: altRelevo, larguraMm, alturaMm, coresDetectadas });
+    // Gerar TXT: guia de impressão (litofânias) ou de troca de filamento (HueForge)
+    const isLito = familia.startsWith('litofania');
+    const txtContent = isLito
+      ? buildLitofaniaTxt({
+          curva: familia === 'litofania-curva', larguraMm, alturaMm,
+          espMin: Number(rest.esp_min ?? 0.6), espMax: Number(rest.esp_max ?? 3.0),
+          moldura: Number(rest.moldura_mm ?? 3),
+          raio: Number(rest.raio ?? 50), angulo: Number(rest.angulo ?? 270),
+        })
+      : buildHueforgeTxt({ numCores, layerHeight, primeiraCamada, espessuraBase: espBase, alturaRelevo: altRelevo, larguraMm, alturaMm, coresDetectadas });
     const txtFilename = `${produtoId}_hf_${paramsKey}.txt`;
     const txtUrl      = await uploadFile(`${folder}/${txtFilename}`, Buffer.from(txtContent, 'utf8'), 'text/plain');
     if (txtUrl) response.txtUrl = txtUrl;

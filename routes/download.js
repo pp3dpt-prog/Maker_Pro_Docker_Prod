@@ -8,8 +8,9 @@ import { createClient } from '@supabase/supabase-js';
 import { PassThrough } from 'stream';
 import Jimp from 'jimp';
 import { alinharCamadasHueforge, generateHueforgeStl, generateBookmarkStl, generateLithophaneFlatStl, generateLithophaneCurvedStl } from '../app/hueforge-stl.js';
-import { frameImage, aspectForFamily, targetLongPxForFamily, heightFracBeerLambert } from '../app/image-proc.js';
+import { frameImage, aspectForFamily, targetLongPxForFamily, heightFracBeerLambert, litoFracLuz } from '../app/image-proc.js';
 import { buildHueforgeTxt }   from './gerar-stl-pro.js';
+import { buildLitofaniaTxt } from '../app/litofania-guia.js';
 import { scadVars }           from '../lib/scad.js';
 import { aplicarAjusteTexto } from '../lib/textFit.js';
 import { aplicarLogo } from '../lib/logo.js';
@@ -343,12 +344,14 @@ export async function downloadStl(req, res) {
         // contraste deixam de sair todas no mesmo nível (relevo plano).
         img.grayscale();
         img.normalize();
-        // Litofânias: espessura proporcional ao tom (rampa contínua). As bandas
+        // Litofânias: espessura pela transmissão de luz (litoFracLuz). As bandas
         // Beer-Lambert são para o HueForge (trocas de filamento por camada).
         const lito = familiaImg.startsWith('litofania');
         img.scan(0, 0, iw, ih, function (x, y, idx) {
           const gray = this.bitmap.data[idx];
-          const q    = lito ? gray : Math.round(heightFracBeerLambert(gray, n) * 255);
+          const q    = lito
+            ? Math.round(litoFracLuz(gray, paramsNormalizados.esp_min ?? 0.6, paramsNormalizados.esp_max ?? 3.0) * 255)
+            : Math.round(heightFracBeerLambert(gray, n) * 255);
           this.bitmap.data[idx] = this.bitmap.data[idx+1] = this.bitmap.data[idx+2] = q;
         });
       }
@@ -414,14 +417,15 @@ export async function downloadStl(req, res) {
           largura: Number(paramsNormalizados.largura_mm ?? 150),
           altura:  Number(paramsNormalizados.altura_mm  ?? 150),
           espMax:  Number(paramsNormalizados.esp_max ?? 3.0),
-          espMin:  Number(paramsNormalizados.esp_min ?? 0.8) });
+          espMin:  Number(paramsNormalizados.esp_min ?? 0.6),
+          moldura: Number(paramsNormalizados.moldura_mm ?? 3) });
       } else if (familiaLower === 'litofania-curva') {
         stlBuffer = generateLithophaneCurvedStl({ heightmap,
           alturaMm: Number(paramsNormalizados.altura_mm ?? 150),
           raio:     Number(paramsNormalizados.raio   ?? 50),
           angulo:   Number(paramsNormalizados.angulo ?? 270),
           espMax:   Number(paramsNormalizados.esp_max ?? 3.0),
-          espMin:   Number(paramsNormalizados.esp_min ?? 0.8) });
+          espMin:   Number(paramsNormalizados.esp_min ?? 0.6) });
       } else {
         stlBuffer = generateHueforgeStl({
           heightmap,
@@ -434,6 +438,23 @@ export async function downloadStl(req, res) {
       const stlPath = `${base}.stl`;
       await fsp.writeFile(stlPath, stlBuffer);
       files.push({ name: `${design_id}.stl`, path: stlPath });
+
+      // Litofânias: guia de impressão no ZIP
+      if (familiaLower.startsWith('litofania')) {
+        const litoTxt = buildLitofaniaTxt({
+          curva: familiaLower === 'litofania-curva',
+          larguraMm: Number(paramsNormalizados.largura_mm ?? 150),
+          alturaMm:  Number(paramsNormalizados.altura_mm  ?? 150),
+          espMin:    Number(paramsNormalizados.esp_min ?? 0.6),
+          espMax:    Number(paramsNormalizados.esp_max ?? 3.0),
+          moldura:   Number(paramsNormalizados.moldura_mm ?? 3),
+          raio:      Number(paramsNormalizados.raio   ?? 50),
+          angulo:    Number(paramsNormalizados.angulo ?? 270),
+        });
+        const litoTxtPath = `${base}_litofania.txt`;
+        await fsp.writeFile(litoTxtPath, litoTxt, 'ascii');
+        files.push({ name: 'guia_litofania.txt', path: litoTxtPath });
+      }
 
       // Gerar TXT (guia de cores do HueForge) e incluir no ZIP — não se aplica às litofânias
       if (!familiaLower.startsWith('litofania')) {
