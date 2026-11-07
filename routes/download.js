@@ -423,7 +423,7 @@ export async function downloadStl(req, res) {
     } else if (isCaixaLuzLito) {
       // Litofânia Caixa de Luz: painel (JS, igual à litofania plana) + base com luz (OpenSCAD) + guia
       if (typeof paramsNormalizados.image_path !== 'string' || !paramsNormalizados.image_path.startsWith('uploads/')) {
-        throw new Error('Carrega uma imagem.');
+        throw Object.assign(new Error('Carrega uma imagem.'), { status: 400 });
       }
       const { data: imgData, error: imgErr } = await supabase.storage
         .from('makers_pro_stl_prod')
@@ -471,7 +471,7 @@ export async function downloadStl(req, res) {
       // Termoformagem/Prensagem: macho + fêmea (JS, igual vetorização do
       // porta-chaves de imagem) + moldura (JS) + guia
       if (typeof paramsNormalizados.image_path !== 'string' || !paramsNormalizados.image_path.startsWith(`uploads/${user.id}/`)) {
-        throw new Error('Carrega uma imagem/SVG.');
+        throw Object.assign(new Error('Carrega uma imagem/SVG.'), { status: 400 });
       }
       const vetor = await obterVetor(paramsNormalizados.image_path, paramsNormalizados);
       const rt = gerarTermoformagem(vetor, paramsNormalizados, { final: true });
@@ -495,14 +495,20 @@ export async function downloadStl(req, res) {
       // Caixa de Luz — logótipo/texto: corpo (novo, paredes ocas) + frente/cores
       // (igual ao porta-chaves de imagem, ver construirPecas) + guia
       if (typeof paramsNormalizados.image_path !== 'string' || !paramsNormalizados.image_path.startsWith(`uploads/${user.id}/`)) {
-        throw new Error('Carrega uma imagem/SVG.');
+        throw Object.assign(new Error('Carrega uma imagem/SVG.'), { status: 400 });
       }
       const vetorCL = await obterVetor(paramsNormalizados.image_path, paramsNormalizados);
-      const { r: rCL, geo: geoCL, corpoTris } = construirCaixaLuzLogo(vetorCL, paramsNormalizados);
+      const { r: rCL, geo: geoCL, corpoTris, tampaTris, formaTipo } = construirCaixaLuzLogo(vetorCL, paramsNormalizados);
 
       const corpoPath = `${base}_corpo.stl`;
       await fsp.writeFile(corpoPath, stlBinario(corpoTris, 'corpo'));
       files.push({ name: 'corpo.stl', path: corpoPath });
+
+      if (tampaTris) {
+        const tampaPath = `${base}_tampa.stl`;
+        await fsp.writeFile(tampaPath, stlBinario(tampaTris, 'tampa'));
+        files.push({ name: 'tampa.stl', path: tampaPath });
+      }
 
       if (rCL.parametros.modo === 'ams') {
         const partes = rCL.pecas.map(pc => ({ nome: pc.nome, cor: pc.cor, tri: fatiasParaTriangulos(pc.fatias) }));
@@ -519,7 +525,7 @@ export async function downloadStl(req, res) {
       }
 
       const guiaPath = `${base}_guia.txt`;
-      await fsp.writeFile(guiaPath, guiaCaixaLuzLogo(rCL, geoCL), 'ascii');
+      await fsp.writeFile(guiaPath, guiaCaixaLuzLogo(rCL, geoCL, formaTipo), 'ascii');
       files.push({ name: 'guia_caixa_luz_logo.txt', path: guiaPath });
     } else if (isVetor) {
       const nomeBase = String(design.nome || 'porta-chaves').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').toLowerCase() || 'porta-chaves';
@@ -820,6 +826,14 @@ export async function downloadStl(req, res) {
 
   } catch (err) {
     console.error('DOWNLOAD_FAILED', err);
-    res.status(500).send('DOWNLOAD_FAILED');
+    // Erros de validação (ex.: "carrega uma imagem", forma vazia depois de
+    // recortar a parede…) já têm .status e uma mensagem útil — mostra-a ao
+    // utilizador em vez do genérico DOWNLOAD_FAILED. Erros inesperados
+    // (bugs, falhas de rede) continuam só a aparecer na consola do servidor.
+    if (err?.status && err.status < 500 && err.message) {
+      res.status(err.status).send(err.message);
+    } else {
+      res.status(500).send('DOWNLOAD_FAILED');
+    }
   }
 }

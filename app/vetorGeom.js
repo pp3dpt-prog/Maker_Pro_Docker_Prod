@@ -142,7 +142,7 @@ export function construirPecas(vetor, parametros) {
     ocupado = uniao(ocupado, reg);
     cores.push({ hex: c.hex, regiao: reg });
   }
-  if (!cores.length) throw new Error('Não sobrou nenhuma cor depois da limpeza de detalhes — baixa o "detalhe mínimo".');
+  if (!cores.length) throw Object.assign(new Error('Não sobrou nenhuma cor depois da limpeza de detalhes — baixa o "detalhe mínimo".'), { status: 400 });
 
   // Fecha as frestas finas entre cores vizinhas (o potrace traça cada cor à parte e
   // as fronteiras não coincidem ao micrómetro): sem isto apareciam riscos da cor da
