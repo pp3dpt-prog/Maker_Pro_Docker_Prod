@@ -20,6 +20,7 @@ import { frameImage, aspectForFamily, targetLongPxForFamily, heightFracBeerLambe
 import { gerarStlPro, buildHueforgeTxt } from './gerar-stl-pro.js';
 import { buildLitofaniaTxt } from '../app/litofania-guia.js';
 import { gerarParedesCubo } from '../app/litofaniaCubo.js';
+import { tipoDesign } from '../lib/tipoDesign.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = dirname(__filename);
@@ -66,13 +67,14 @@ export async function gerarStlHueforge(req, res) {
     // Buscar design
     const { data: design, error: dErr } = await supabase
       .from(DESIGNS_TABLE)
-      .select('id, familia, scad_template, qualidade_preview, qualidade_final')
+      .select('id, familia, scad_template, generation_schema, qualidade_preview, qualidade_final')
       .eq('id', String(produtoId))
       .maybeSingle();
 
     if (dErr || !design) return res.status(404).json({ error: 'Design não encontrado.' });
 
-    const familia = String(design.familia || '').toLowerCase();
+    // Tipo de gerador (engine ou, nos designs antigos, a família) — ver lib/tipoDesign.js
+    const familia = tipoDesign(design);
     const JS_FAMILIES = ['hueforge', 'marcadores', 'portachaves', 'litofania', 'litofania-curva', 'litofania-esfera', 'litofania-cubo'];
     const isJsMode = JS_FAMILIES.includes(familia);
 

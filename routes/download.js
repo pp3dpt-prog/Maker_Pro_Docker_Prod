@@ -12,6 +12,7 @@ import { frameImage, aspectForFamily, targetLongPxForFamily, heightFracBeerLambe
 import { buildHueforgeTxt }   from './gerar-stl-pro.js';
 import { buildLitofaniaTxt } from '../app/litofania-guia.js';
 import { gerarParedesCubo, cuboBaseScad, cuboTampaScad } from '../app/litofaniaCubo.js';
+import { tipoDesign } from '../lib/tipoDesign.js';
 import { scadVars }           from '../lib/scad.js';
 import { aplicarAjusteTexto } from '../lib/textFit.js';
 import { aplicarLogo } from '../lib/logo.js';
@@ -256,7 +257,9 @@ export async function downloadStl(req, res) {
     // Processar imagem se existir (HueForge e portachaves com imagem)
     const tempImageFiles = [];
     let coresDetectadas = null; // preenchido abaixo em modo_cor; usado no .txt do HueForge mais à frente
-    const isCubo = String(design.familia || '').toLowerCase() === 'litofania-cubo';
+    // Tipo de gerador (engine ou família) — a família é só a categoria da loja
+    const tipo = tipoDesign(design);
+    const isCubo = tipo === 'litofania-cubo';
     if (!isVetor && !isCubo && typeof paramsNormalizados.image_path === 'string' && paramsNormalizados.image_path.startsWith('uploads/')) {
       const imgUid = uuid();
       const rawPath  = path.join(TMP_DIR, `img_raw_${imgUid}.png`);
@@ -273,7 +276,7 @@ export async function downloadStl(req, res) {
       // Enquadrar (igual ao preview: ajuste/zoom/posição). Ficheiro de
       // download real — grelha escala com o tamanho físico da peça (mm),
       // ver targetLongPxForFamily em image-proc.js.
-      const familiaImg = String(design.familia || '').toLowerCase();
+      const familiaImg = tipo;
       const rawImg = await Jimp.read(rawPath);
       const img = await frameImage(rawImg, {
         targetLong: targetLongPxForFamily(familiaImg, paramsNormalizados),
@@ -371,10 +374,10 @@ export async function downloadStl(req, res) {
     const files = [];
 
     const JS_FAMILIES_DL = ['hueforge', 'marcadores', 'portachaves', 'litofania', 'litofania-curva', 'litofania-esfera'];
-    const isHueforgeFamily = JS_FAMILIES_DL.includes(String(design.familia || '').toLowerCase());
-    const isCaixa = design.familia === 'caixas';
-    const isLetras = design.familia === 'letras-decorativas';
-    const isCaixaLuz = design.familia === 'letras-caixa-luz';
+    const isHueforgeFamily = JS_FAMILIES_DL.includes(tipo);
+    const isCaixa = tipo === 'caixas';
+    const isLetras = tipo === 'letras-decorativas';
+    const isCaixaLuz = tipo === 'letras-caixa-luz';
 
     if (isCubo) {
       // Litofânia Cubo: paredes (JS) + base e tampa (OpenSCAD) + guia
@@ -414,7 +417,7 @@ export async function downloadStl(req, res) {
           return img.bitmap.data[idx] / 255;
         })
       );
-      const familiaLower = String(design.familia || '').toLowerCase();
+      const familiaLower = tipo;
       // Base/relevo alinhados às camadas do slicer (mesmos valores no STL e no TXT)
       const isMarcadorDl = familiaLower === 'marcadores';
       const camadasHf = alinharCamadasHueforge({

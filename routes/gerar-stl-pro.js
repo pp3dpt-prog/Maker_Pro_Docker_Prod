@@ -6,6 +6,7 @@
  * Para HueForge devolve também txtUrl com o guia de mudança de filamento.
  */
 
+import { tipoDesign } from '../lib/tipoDesign.js';
 import fs   from 'fs';
 import fsp  from 'fs/promises';
 import path from 'path';
@@ -446,7 +447,7 @@ export async function gerarStlPro(req, res) {
       ? (design.qualidade_preview || 24)
       : (design.qualidade_final   || 100);
 
-    const familia       = String(design.familia || '').toLowerCase();
+    const familia       = tipoDesign(design);   // engine ou família (lib/tipoDesign.js)
     const isHueforge    = familia === 'hueforge';
     const isMulticor    = familia === 'portachaves_nome_multicor';
     const isImageBased  = typeof params.image_path === 'string' && params.image_path.length > 0;
