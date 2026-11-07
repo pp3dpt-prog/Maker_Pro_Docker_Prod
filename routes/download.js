@@ -12,6 +12,7 @@ import { frameImage, aspectForFamily, targetLongPxForFamily, heightFracBeerLambe
 import { buildHueforgeTxt }   from './gerar-stl-pro.js';
 import { buildLitofaniaTxt } from '../app/litofania-guia.js';
 import { gerarParedesCubo, cuboBaseScad, cuboTampaScad } from '../app/litofaniaCubo.js';
+import { caixaLuzGeometria, caixaLuzBaseScad, guiaCaixaLuz } from '../app/litofaniaCaixaLuz.js';
 import { tipoDesign } from '../lib/tipoDesign.js';
 import { GERADORES_ILUMINARIA, gerarIluminaria } from '../app/iluminarias.js';
 import { scadVars }           from '../lib/scad.js';
@@ -261,7 +262,8 @@ export async function downloadStl(req, res) {
     // Tipo de gerador (engine ou família) — a família é só a categoria da loja
     const tipo = tipoDesign(design);
     const isCubo = tipo === 'litofania-cubo';
-    if (!isVetor && !isCubo && typeof paramsNormalizados.image_path === 'string' && paramsNormalizados.image_path.startsWith('uploads/')) {
+    const isCaixaLuzLito = tipo === 'litofania-caixa-luz';
+    if (!isVetor && !isCubo && !isCaixaLuzLito && typeof paramsNormalizados.image_path === 'string' && paramsNormalizados.image_path.startsWith('uploads/')) {
       const imgUid = uuid();
       const rawPath  = path.join(TMP_DIR, `img_raw_${imgUid}.png`);
       const procPath = path.join(TMP_DIR, `img_proc_${imgUid}.png`);
@@ -413,6 +415,53 @@ export async function downloadStl(req, res) {
       const guiaPath = `${base}_guia.txt`;
       await fsp.writeFile(guiaPath, buildLitofaniaTxt({ cubo: true, geoCubo: geo, espMin: geo.espMin, espMax: geo.espMax }), 'ascii');
       files.push({ name: 'guia_cubo_litofania.txt', path: guiaPath });
+    } else if (isCaixaLuzLito) {
+      // Litofânia Caixa de Luz: painel (JS, igual à litofania plana) + base com luz (OpenSCAD) + guia
+      if (typeof paramsNormalizados.image_path !== 'string' || !paramsNormalizados.image_path.startsWith('uploads/')) {
+        throw new Error('Carrega uma imagem.');
+      }
+      const { data: imgData, error: imgErr } = await supabase.storage
+        .from('makers_pro_stl_prod')
+        .download(paramsNormalizados.image_path);
+      if (imgErr || !imgData) throw new Error(`Erro ao descarregar imagem: ${imgErr?.message}`);
+      const rawImg = await Jimp.read(Buffer.from(await imgData.arrayBuffer()));
+
+      const geoCaixa = caixaLuzGeometria(paramsNormalizados);
+      const imgCaixa = await frameImage(rawImg, {
+        targetLong: targetLongPxForFamily('litofania', paramsNormalizados),
+        aspect: aspectForFamily('litofania', paramsNormalizados),
+        fit: paramsNormalizados.img_ajuste ?? 'Preencher',
+        zoom: paramsNormalizados.img_zoom,
+        posX: paramsNormalizados.img_pos_x,
+        posY: paramsNormalizados.img_pos_y,
+      });
+      imgCaixa.grayscale();
+      imgCaixa.normalize();
+      const icw = imgCaixa.getWidth(), ich = imgCaixa.getHeight();
+      imgCaixa.scan(0, 0, icw, ich, function (x, y, idx) {
+        const gray = this.bitmap.data[idx];
+        const q = Math.round(litoFracLuz(gray, geoCaixa.espMin, geoCaixa.espMax) * 255);
+        this.bitmap.data[idx] = this.bitmap.data[idx + 1] = this.bitmap.data[idx + 2] = q;
+      });
+      const heightmapCaixa = Array.from({ length: ich }, (_, r) =>
+        Array.from({ length: icw }, (_, c) => imgCaixa.bitmap.data[imgCaixa.getPixelIndex(c, r)] / 255));
+
+      const painelBuffer = generateLithophaneFlatStl({
+        heightmap: heightmapCaixa,
+        largura: geoCaixa.larguraMm, altura: geoCaixa.alturaMm,
+        espMax: geoCaixa.espMax, espMin: geoCaixa.espMin, moldura: geoCaixa.molduraMm,
+      });
+      const painelPath = `${base}_painel.stl`;
+      await fsp.writeFile(painelPath, painelBuffer);
+      files.push({ name: 'painel_litofania.stl', path: painelPath });
+
+      const basePath = `${base}_base.stl`;
+      await gerarSTL({ scadTemplate: caixaLuzBaseScad(geoCaixa), params: {}, outFile: basePath });
+      files.push({ name: 'base_caixa_luz.stl', path: basePath });
+
+      const guiaPath = `${base}_guia.txt`;
+      await fsp.writeFile(guiaPath, guiaCaixaLuz(geoCaixa), 'ascii');
+      files.push({ name: 'guia_caixa_luz.txt', path: guiaPath });
     } else if (isVetor) {
       const nomeBase = String(design.nome || 'porta-chaves').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').toLowerCase() || 'porta-chaves';
       for (const f of await gerarFicheirosVetor(paramsNormalizados.image_path, paramsNormalizados, nomeBase)) {
