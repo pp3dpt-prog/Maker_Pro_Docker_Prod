@@ -113,7 +113,7 @@ export async function gerarStlHueforge(req, res) {
     const brilho       = Math.max(-1, Math.min(1, Number(rest.brilho    ?? 0)));
 
     // Enquadramento da imagem (igual ao preview do editor)
-    const ajuste  = rest.img_ajuste ?? 'Esticar';   // sem param → comportamento antigo
+    const ajuste  = rest.img_ajuste ?? 'Preencher';   // igual ao default da pré-visualização do editor
     const zoom    = Number(rest.img_zoom  ?? 100);
     const posX    = Number(rest.img_pos_x ?? 0);
     const posY    = Number(rest.img_pos_y ?? 0);
@@ -121,7 +121,7 @@ export async function gerarStlHueforge(req, res) {
 
     // Hash para cache — inclui ajustes + modo de cor + versão. Subir "v" sempre que
     // mudar a geometria OU o guia TXT (a cache devolve os dois ficheiros antigos).
-    const paramsKey = sha256(JSON.stringify({ v: 5, imagePath, numCores, layerHeight, primeiraCamada, espBase, altRelevo, larguraMm, alturaMm, contraste, brilho, ajuste, zoom, posX, posY, modoCor, renderMode }));
+    const paramsKey = sha256(JSON.stringify({ v: 6, imagePath, numCores, layerHeight, primeiraCamada, espBase, altRelevo, larguraMm, alturaMm, contraste, brilho, ajuste, zoom, posX, posY, modoCor, renderMode }));
     const stlFilename = `${produtoId}_hf_${paramsKey}.stl`;
     const folder      = `users/${user.id}/${renderMode}`;
     const stlStorage  = `${folder}/${stlFilename}`;

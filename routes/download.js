@@ -275,7 +275,7 @@ export async function downloadStl(req, res) {
       const img = await frameImage(rawImg, {
         targetLong: targetLongPxForFamily(familiaImg, paramsNormalizados),
         aspect: aspectForFamily(familiaImg, paramsNormalizados),
-        fit: paramsNormalizados.img_ajuste ?? 'Esticar',
+        fit: paramsNormalizados.img_ajuste ?? 'Preencher',   // igual à pré-visualização
         zoom: paramsNormalizados.img_zoom,
         posX: paramsNormalizados.img_pos_x,
         posY: paramsNormalizados.img_pos_y,
