@@ -4,6 +4,41 @@
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Alinhamento às camadas do slicer
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Ajusta espessura da base e altura do relevo para que TODAS as fronteiras de
+ * cor (fim da base e fim de cada banda) caiam exatamente no topo de uma camada
+ * do slicer: primeira camada = primeiraCamada, restantes = layerHeight.
+ * Sem isto a troca de filamento calculada (ex.: 0.60 mm com camadas de 0.16)
+ * caía a meio de uma camada e o guia não batia com o que o slicer mostra.
+ * Usar os valores devolvidos TANTO no STL como no guia TXT.
+ */
+export function alinharCamadasHueforge({ espBase, altRelevo, numCores, layerHeight, primeiraCamada }) {
+  const r4 = (v) => Math.round(v * 10000) / 10000;
+  const lh = Math.max(0.04, Number(layerHeight) || 0.12);
+  const fl = Math.max(0.04, Number(primeiraCamada) || lh);
+  const niveis = Math.max(1, Math.max(2, numCores) - 1);
+
+  // Base: 1.ª camada + k camadas normais (no mínimo só a 1.ª camada)
+  const kBase   = Math.max(0, Math.round((Number(espBase) - fl) / lh));
+  const base    = r4(fl + kBase * lh);
+  // Cada banda: número inteiro de camadas (mín. 1)
+  const kBanda  = Math.max(1, Math.round(Number(altRelevo) / niveis / lh));
+  const bandaMm = r4(kBanda * lh);
+
+  return {
+    espBase: base,
+    altRelevo: r4(bandaMm * niveis),
+    bandaMm,
+    camadasBanda: kBanda,
+    layerHeight: lh,
+    primeiraCamada: fl,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // HueForge / Marcadores — heightmap aditivo (escuro=baixo, claro=alto)
 // ─────────────────────────────────────────────────────────────────────────────
 

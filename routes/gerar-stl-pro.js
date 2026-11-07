@@ -233,24 +233,29 @@ async function quantizeImage(inputPath, outputPath, numCores) {
 }
 
 /** Gera o guia TXT de mudança de filamento para HueForge. */
-export function buildHueforgeTxt({ numCores, layerHeight, espessuraBase, alturaRelevo, larguraMm, alturaMm, coresDetectadas }) {
+export function buildHueforgeTxt({ numCores, layerHeight, primeiraCamada, espessuraBase, alturaRelevo, larguraMm, alturaMm, coresDetectadas }) {
   // coresDetectadas: array opcional de hex (#rrggbb), ordenado do mais escuro
   // ao mais claro (mesma ordem das camadas) — vem do k-means em modo_cor.
   // Sem isto (modo P&B), o guia fica genérico como antes.
   const cor = (i) => coresDetectadas?.[i - 1] ? `  [${coresDetectadas[i - 1]}]` : '';
 
   const lh = layerHeight;
+  // 1.ª camada do slicer (Bambu/Orca: 0.2 mm por defeito). Sem valor assume-se
+  // igual às restantes (comportamento antigo).
+  const fl = Number(primeiraCamada) > 0 ? Number(primeiraCamada) : lh;
   // Geometria (hueforge-stl.js): altura = base + fração × relevo, com a fração
   // dividida em (numCores−1) bandas iguais. A cor 1 é a base; a cor i (i ≥ 2)
   // começa no início da banda i−2, ou seja a  base + (i−2) × relevo/(numCores−1).
-  // (Antes começava uma banda acima → a última cor ficava acima do topo da peça.)
+  // Quem chama deve passar base/relevo já alinhados com alinharCamadasHueforge()
+  // para que cada troca caia exatamente no topo de uma camada.
   const niveis      = Math.max(1, numCores - 1);
   const bandaMm     = alturaRelevo / niveis;
   const camadasBand = bandaMm / lh;
-  const totalLayers = Math.round((espessuraBase + alturaRelevo) / lh);
+  const total       = espessuraBase + alturaRelevo;
+  // Camada k (1 = primeira) tem o topo em  fl + (k−1)·lh  → é esse Z que o slicer mostra
+  const camadaComTopo = (z) => Math.max(1, Math.round((z - fl) / lh) + 1);
+  const totalLayers   = camadaComTopo(total);
   const fmt = (v) => v.toFixed(2);
-  // camada (numeração do slicer, 1 = primeira) que começa à altura z
-  const camadaEm = (z) => Math.round(z / lh) + 1;
   const sep = '='.repeat(49);
 
   const L = [
@@ -259,29 +264,29 @@ export function buildHueforgeTxt({ numCores, layerHeight, espessuraBase, alturaR
     sep,
     '',
     `  Dimensoes       : ${larguraMm} mm x ${alturaMm} mm`,
-    `  Altura de camada: ${lh} mm`,
+    `  Altura de camada: ${lh} mm  (1.a camada: ${fl} mm)`,
     `  Numero de cores : ${numCores}`,
-    `  Espessura base  : ${espessuraBase} mm`,
-    `  Altura do relevo: ${alturaRelevo} mm`,
-    `  Altura total    : ${fmt(espessuraBase + alturaRelevo)} mm  (~${totalLayers} camadas)`,
+    `  Espessura base  : ${fmt(espessuraBase)} mm`,
+    `  Altura do relevo: ${fmt(alturaRelevo)} mm`,
+    `  Altura total    : ${fmt(total)} mm  (${totalLayers} camadas)`,
     '',
     sep,
     '',
     `  COR 1  (mais escura - carrega antes de iniciar)${cor(1)}`,
-    `    -> Base e inicio: dos 0 aos ${fmt(espessuraBase)} mm`,
+    `    -> Base: camadas 1 a ${camadaComTopo(espessuraBase)} (0 a ${fmt(espessuraBase)} mm)`,
     '',
   ];
 
   for (let i = 2; i <= numCores; i++) {
-    const z0 = espessuraBase + (i - 2) * bandaMm;
+    const z0 = espessuraBase + (i - 2) * bandaMm;   // topo da última camada da cor anterior
     const z1 = espessuraBase + (i - 1) * bandaMm;
-    const camada = camadaEm(z0);
+    const camada = camadaComTopo(z0) + 1;            // primeira camada da cor nova
     L.push(`  COR ${i}${i === numCores ? '  (mais clara)' : ''}${cor(i)}`);
-    L.push(`    -> Troca aos ${fmt(z0)} mm: pausa ANTES da camada ${camada}`);
-    L.push(`       (no Bambu Studio / Orca e a camada que mostra Z = ${fmt(camada * lh)} mm)`);
+    L.push(`    -> Pausa ANTES da camada ${camada}  (Z = ${fmt(z0 + lh)} mm no slicer)`);
+    L.push(`       = depois de terminar a camada ${camada - 1} (Z = ${fmt(z0)} mm)`);
     L.push(i < numCores
-      ? `    -> Imprime ate aos ${fmt(z1)} mm`
-      : `    -> Imprime ate ao fim (${fmt(z1)} mm)`);
+      ? `    -> Imprime as camadas ${camada} a ${camadaComTopo(z1)} (ate ${fmt(z1)} mm)`
+      : `    -> Imprime ate ao fim (camada ${camadaComTopo(z1)}, ${fmt(z1)} mm)`);
     L.push('');
   }
 
@@ -308,8 +313,8 @@ export function buildHueforgeTxt({ numCores, layerHeight, espessuraBase, alturaR
   L.push('  DICAS:');
   L.push('  * Usa "Pause at Layer" no Bambu Studio / Orca / PrusaSlicer, ou M600.');
   L.push('  * Cor 1 = mais escura  |  Cor N = mais clara.');
-  L.push('  * Se a 1.a camada for mais alta (ex. 0.2 mm), guia-te pela altura em mm,');
-  L.push('    nao pelo numero da camada.');
+  L.push(`  * Confirma no slicer: altura de camada ${lh} mm e 1.a camada ${fl} mm.`);
+  L.push('    Se forem outras, os numeros das camadas deixam de bater certo.');
   L.push('');
   L.push(sep);
 

@@ -7,7 +7,7 @@ import { v4 as uuid } from 'uuid';
 import { createClient } from '@supabase/supabase-js';
 import { PassThrough } from 'stream';
 import Jimp from 'jimp';
-import { generateHueforgeStl, generateBookmarkStl, generateLithophaneFlatStl, generateLithophaneCurvedStl } from '../app/hueforge-stl.js';
+import { alinharCamadasHueforge, generateHueforgeStl, generateBookmarkStl, generateLithophaneFlatStl, generateLithophaneCurvedStl } from '../app/hueforge-stl.js';
 import { frameImage, aspectForFamily, targetLongPxForFamily, heightFracBeerLambert } from '../app/image-proc.js';
 import { buildHueforgeTxt }   from './gerar-stl-pro.js';
 import { scadVars }           from '../lib/scad.js';
@@ -389,14 +389,23 @@ export async function downloadStl(req, res) {
         })
       );
       const familiaLower = String(design.familia || '').toLowerCase();
+      // Base/relevo alinhados às camadas do slicer (mesmos valores no STL e no TXT)
+      const isMarcadorDl = familiaLower === 'marcadores';
+      const camadasHf = alinharCamadasHueforge({
+        espBase:        Number(paramsNormalizados.espessura_base ?? (isMarcadorDl ? 0.6 : 1.0)),
+        altRelevo:      Number(paramsNormalizados.altura_relevo  ?? (isMarcadorDl ? 1.5 : 2.0)),
+        numCores:       Math.max(2, Math.min(6, Number(paramsNormalizados.num_cores ?? 4))),
+        layerHeight:    Number(paramsNormalizados.layer_height    ?? 0.12),
+        primeiraCamada: Number(paramsNormalizados.primeira_camada ?? 0.2),
+      });
       let stlBuffer;
       if (familiaLower === 'marcadores' || familiaLower === 'portachaves') {
         const largura = Number(paramsNormalizados.largura ?? paramsNormalizados.largura_mm ?? (familiaLower === 'portachaves' ? 55 : 20));
         const altura  = Number(paramsNormalizados.altura  ?? paramsNormalizados.altura_mm  ?? (familiaLower === 'portachaves' ? 35 : 150));
         stlBuffer = generateBookmarkStl({
           heightmap, largura, altura,
-          espBase:   Number(paramsNormalizados.espessura ?? paramsNormalizados.espessura_base ?? (familiaLower === 'portachaves' ? 3.5 : 0.6)),
-          altRelevo: Number(paramsNormalizados.relevo    ?? paramsNormalizados.altura_relevo  ?? 1.5),
+          espBase:   familiaLower === 'portachaves' ? Number(paramsNormalizados.espessura ?? paramsNormalizados.espessura_base ?? 3.5) : camadasHf.espBase,
+          altRelevo: familiaLower === 'portachaves' ? Number(paramsNormalizados.relevo    ?? paramsNormalizados.altura_relevo  ?? 1.5) : camadasHf.altRelevo,
           holeDiameter:  familiaLower === 'portachaves' ? 5 : Number(paramsNormalizados.hole_diameter ?? 4),
           holeMarginTop: familiaLower === 'portachaves' ? 4 : Number(paramsNormalizados.hole_margin_top ?? 6),
         });
@@ -418,8 +427,8 @@ export async function downloadStl(req, res) {
           heightmap,
           largura: Number(paramsNormalizados.largura_mm ?? 100),
           altura:  Number(paramsNormalizados.altura_mm  ?? 100),
-          espBase: Number(paramsNormalizados.espessura_base ?? 1.0),
-          altRelevo: Number(paramsNormalizados.altura_relevo ?? 2.0),
+          espBase:   camadasHf.espBase,
+          altRelevo: camadasHf.altRelevo,
         });
       }
       const stlPath = `${base}.stl`;
@@ -430,11 +439,12 @@ export async function downloadStl(req, res) {
       if (!familiaLower.startsWith('litofania')) {
       const txtContent = buildHueforgeTxt({
         numCores    : Number(paramsNormalizados.num_cores      ?? 4),
-        layerHeight : Number(paramsNormalizados.layer_height   ?? 0.12),
-        espessuraBase: Number(paramsNormalizados.espessura_base ?? 1.0),
-        alturaRelevo : Number(paramsNormalizados.altura_relevo  ?? 2.0),
-        larguraMm   : Number(paramsNormalizados.largura_mm     ?? 100),
-        alturaMm    : Number(paramsNormalizados.altura_mm      ?? 100),
+        layerHeight   : camadasHf.layerHeight,
+        primeiraCamada: camadasHf.primeiraCamada,
+        espessuraBase : camadasHf.espBase,
+        alturaRelevo  : camadasHf.altRelevo,
+        larguraMm   : Number(paramsNormalizados.largura_mm     ?? (isMarcadorDl ? 20  : 100)),
+        alturaMm    : Number(paramsNormalizados.altura_mm      ?? (isMarcadorDl ? 150 : 100)),
         coresDetectadas,
       });
       const txtPath = `${base}_hueforge.txt`;

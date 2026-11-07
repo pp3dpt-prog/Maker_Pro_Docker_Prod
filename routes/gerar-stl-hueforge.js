@@ -15,7 +15,7 @@ import { fileURLToPath } from 'url';
 import { dirname }       from 'path';
 import Jimp from 'jimp';
 
-import { generateHueforgeStl, generateBookmarkStl, generateLithophaneFlatStl, generateLithophaneCurvedStl } from '../app/hueforge-stl.js';
+import { alinharCamadasHueforge, generateHueforgeStl, generateBookmarkStl, generateLithophaneFlatStl, generateLithophaneCurvedStl } from '../app/hueforge-stl.js';
 import { frameImage, aspectForFamily, targetLongPxForFamily, heightFracBeerLambert } from '../app/image-proc.js';
 import { gerarStlPro, buildHueforgeTxt } from './gerar-stl-pro.js';
 
@@ -93,11 +93,22 @@ export async function gerarStlHueforge(req, res) {
     const maxPx      = renderMode === 'preview' ? 150 : targetLongPxForFamily(familia, rest);
 
     const numCores     = Math.max(2, Math.min(6, Number(rest.num_cores     ?? 4)));
-    const layerHeight  = Number(rest.layer_height   ?? 0.12);
-    const espBase      = Number(rest.espessura_base ?? 1.0);
-    const altRelevo    = Number(rest.altura_relevo  ?? 2.0);
-    const larguraMm    = Number(rest.largura_mm     ?? 100);
-    const alturaMm     = Number(rest.altura_mm      ?? 100);
+    const isMarcador   = familia === 'marcadores';
+    // Base e relevo alinhados às camadas do slicer → as trocas do guia TXT caem
+    // exatamente no topo de uma camada (STL e TXT usam os mesmos valores).
+    const camadas = alinharCamadasHueforge({
+      espBase:        Number(rest.espessura_base ?? (isMarcador ? 0.6 : 1.0)),
+      altRelevo:      Number(rest.altura_relevo  ?? (isMarcador ? 1.5 : 2.0)),
+      numCores,
+      layerHeight:    Number(rest.layer_height    ?? 0.12),
+      primeiraCamada: Number(rest.primeira_camada ?? 0.2),
+    });
+    const layerHeight    = camadas.layerHeight;
+    const primeiraCamada = camadas.primeiraCamada;
+    const espBase        = camadas.espBase;
+    const altRelevo      = camadas.altRelevo;
+    const larguraMm    = Number(rest.largura_mm     ?? (isMarcador ? 20  : 100));
+    const alturaMm     = Number(rest.altura_mm      ?? (isMarcador ? 150 : 100));
     const contraste    = Math.max(-1, Math.min(1, Number(rest.contraste ?? 0)));
     const brilho       = Math.max(-1, Math.min(1, Number(rest.brilho    ?? 0)));
 
@@ -110,7 +121,7 @@ export async function gerarStlHueforge(req, res) {
 
     // Hash para cache — inclui ajustes + modo de cor + versão. Subir "v" sempre que
     // mudar a geometria OU o guia TXT (a cache devolve os dois ficheiros antigos).
-    const paramsKey = sha256(JSON.stringify({ v: 4, imagePath, numCores, layerHeight, espBase, altRelevo, larguraMm, alturaMm, contraste, brilho, ajuste, zoom, posX, posY, modoCor, renderMode }));
+    const paramsKey = sha256(JSON.stringify({ v: 5, imagePath, numCores, layerHeight, primeiraCamada, espBase, altRelevo, larguraMm, alturaMm, contraste, brilho, ajuste, zoom, posX, posY, modoCor, renderMode }));
     const stlFilename = `${produtoId}_hf_${paramsKey}.stl`;
     const folder      = `users/${user.id}/${renderMode}`;
     const stlStorage  = `${folder}/${stlFilename}`;
@@ -263,7 +274,7 @@ export async function gerarStlHueforge(req, res) {
     const response = { success: true, url: stlUrl, cached: false, mode: renderMode, coresDetectadas };
 
     // Gerar TXT HueForge
-    const txtContent  = buildHueforgeTxt({ numCores, layerHeight, espessuraBase: espBase, alturaRelevo: altRelevo, larguraMm, alturaMm, coresDetectadas });
+    const txtContent  = buildHueforgeTxt({ numCores, layerHeight, primeiraCamada, espessuraBase: espBase, alturaRelevo: altRelevo, larguraMm, alturaMm, coresDetectadas });
     const txtFilename = `${produtoId}_hf_${paramsKey}.txt`;
     const txtUrl      = await uploadFile(`${folder}/${txtFilename}`, Buffer.from(txtContent, 'utf8'), 'text/plain');
     if (txtUrl) response.txtUrl = txtUrl;
