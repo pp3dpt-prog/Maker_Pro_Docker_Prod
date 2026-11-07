@@ -426,7 +426,8 @@ export async function downloadStl(req, res) {
       await fsp.writeFile(stlPath, stlBuffer);
       files.push({ name: `${design_id}.stl`, path: stlPath });
 
-      // Gerar TXT e incluir no ZIP
+      // Gerar TXT (guia de cores do HueForge) e incluir no ZIP — não se aplica às litofânias
+      if (!familiaLower.startsWith('litofania')) {
       const txtContent = buildHueforgeTxt({
         numCores    : Number(paramsNormalizados.num_cores      ?? 4),
         layerHeight : Number(paramsNormalizados.layer_height   ?? 0.12),
@@ -439,6 +440,7 @@ export async function downloadStl(req, res) {
       const txtPath = `${base}_hueforge.txt`;
       await fsp.writeFile(txtPath, txtContent, 'ascii');
       files.push({ name: 'hueforge_cores.txt', path: txtPath });
+      }
     } else if (design.generation_schema?.multicor && design.scad_template) {
       const nomeBase = String(design.nome || design_id).normalize('NFD').replace(/[̀-ͯ]/g, '')
         .replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').toLowerCase() || 'pp3d';
@@ -550,7 +552,8 @@ export async function downloadStl(req, res) {
     const nomeUnico = `${design.nome} — Download #${numeroDownload}`;
 
     // Upload para Storage
-    const isZip = files.length > 1;
+    // ficheiros grandes (litofânias/HueForge ~36 MB) vão em ZIP: ~5× menos para enviar e guardar
+    const isZip = files.length > 1 || files.some(f => fs.statSync(f.path).size > 5e6);
     const timestamp = `${Date.now()}`; // milissegundos — sempre único
     const extUnico = (files[0]?.name.split('.').pop() || 'stl').toLowerCase();
     const MIME = { stl: 'model/stl', '3mf': 'model/3mf' };
@@ -566,7 +569,8 @@ export async function downloadStl(req, res) {
       const zipPath = `${base}_upload.zip`;
       await new Promise((resolve, reject) => {
         const output = fs.createWriteStream(zipPath);
-        const arc = archiver('zip', { zlib: { level: 9 } });
+        // nível 6: mesmo tamanho que o 9 em STL, ~5× mais rápido (Render Free = 0,1 CPU)
+        const arc = archiver('zip', { zlib: { level: 6 } });
         arc.pipe(output);
         files.forEach(f => arc.file(f.path, { name: f.name }));
         arc.finalize();
@@ -575,7 +579,8 @@ export async function downloadStl(req, res) {
       });
       console.log('✅ ZIP para upload criado:', fs.existsSync(zipPath), fs.statSync(zipPath).size, 'bytes');
       fileUrl = await uploadToStorage(zipPath, storagePath, 'application/zip');
-      fs.unlink(zipPath, () => {});
+      // o mesmo ZIP segue para o browser (antes era comprimido uma 2.ª vez)
+      files.zipPronto = zipPath;
     } else {
       fileUrl = await uploadToStorage(files[0].path, storagePath, MIME[extUnico] ?? 'application/octet-stream');
     }
@@ -620,17 +625,12 @@ export async function downloadStl(req, res) {
       return;
     }
 
-    // ZIP para o browser
-    const archiveBrowser = archiver('zip', { zlib: { level: 9 } });
-    const zipStream = new PassThrough();
-    archiveBrowser.pipe(zipStream);
-    files.forEach(f => archiveBrowser.file(f.path, { name: f.name }));
-    archiveBrowser.finalize();
-
+    // ZIP para o browser: o mesmo que foi guardado no Storage
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="${isVetor ? 'porta-chaves' : design_id}.zip"`);
-    zipStream.pipe(res);
-    res.on('finish', () => { cleanupFiles(files); tempImageFiles.forEach(f => fsp.unlink(f).catch(() => {})); const txtTmp = `${base}_hueforge.txt`; fsp.unlink(txtTmp).catch(() => {}); });
+    const zipPronto = files.zipPronto;
+    fs.createReadStream(zipPronto).pipe(res);
+    res.on('finish', () => { fs.unlink(zipPronto, () => {}); cleanupFiles(files); tempImageFiles.forEach(f => fsp.unlink(f).catch(() => {})); const txtTmp = `${base}_hueforge.txt`; fsp.unlink(txtTmp).catch(() => {}); });
 
   } catch (err) {
     console.error('DOWNLOAD_FAILED', err);
