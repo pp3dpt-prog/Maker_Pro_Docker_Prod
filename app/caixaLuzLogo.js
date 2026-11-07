@@ -67,6 +67,49 @@ function poligonoRegularPorApotema(apotema, lados, rotacaoGraus = 0) {
   return [pts];
 }
 
+function circuloEm(cx, cy, r, seg = 32) {
+  const pts = [];
+  for (let i = 0; i < seg; i++) {
+    const a = (i / seg) * 2 * Math.PI;
+    pts.push({ X: Math.round((cx + r * Math.cos(a)) * ESC), Y: Math.round((cy + r * Math.sin(a)) * ESC) });
+  }
+  return [pts];
+}
+
+/** Ponto de `paths` que maximiza scoreFn(x,y) — usado para escolher onde fica o furo do cabo. */
+function pontoExtremo(paths, scoreFn) {
+  let melhor = null, melhorScore = -Infinity;
+  for (const anel of paths) for (const pt of anel) {
+    const x = pt.X / ESC, y = pt.Y / ESC;
+    const sc = scoreFn(x, y);
+    if (sc > melhorScore) { melhorScore = sc; melhor = { x, y }; }
+  }
+  return melhor;
+}
+
+/** Maior anel de `paths` por área — o contorno exterior principal, ignorando buracos pequenos (ex. letras com furos). */
+function anelMaior(paths) {
+  let melhor = null, melhorArea = -Infinity;
+  for (const anel of paths) {
+    const a = Math.abs(C.Clipper.Area(anel));
+    if (a > melhorArea) { melhorArea = a; melhor = anel; }
+  }
+  return melhor ? [melhor] : paths;
+}
+
+/** Recorta `corte` da região de cada fatia cujo intervalo [z0,z1] sobreponha [zA,zB], dividindo-a em três se necessário. */
+function aplicarFuroEmFatias(fatias, corte, zA, zB) {
+  const out = [];
+  for (const f of fatias) {
+    const a = Math.max(f.z0, zA), b = Math.min(f.z1, zB);
+    if (a >= b) { out.push(f); continue; }
+    if (a > f.z0) out.push({ z0: f.z0, z1: a, regiao: f.regiao });
+    out.push({ z0: a, z1: b, regiao: diferenca(f.regiao, corte) });
+    if (b < f.z1) out.push({ z0: b, z1: f.z1, regiao: f.regiao });
+  }
+  return out;
+}
+
 export const FORMAS_CAIXA = ['imagem', 'redonda', 'quadrada', 'hexagonal'];
 
 /**
@@ -96,42 +139,73 @@ export function corpoGeometria(p) {
     mesaYMm: num(p?.mesa_y_mm, 256, 100, 1000),
     temTampa: p?.tem_tampa === true || p?.tem_tampa === 1 || p?.tem_tampa === '1',
     espessuraTampaMm: num(p?.espessura_tampa_mm, 2, 1.2, 4),
+    montagem: p?.montagem === 'parede' ? 'parede' : 'pe',
   };
 }
 
+const COLARINHO_ALTURA = 1.2; // mm — rebordo em cada ponta aberta do corpo, para a frente/tampa encaixarem antes de colar
+const COLARINHO_FOLGA = 0.25; // mm — folga do colarinho para a frente/tampa (mesmo contorno de `fronteira`) entrarem justas
+
 /**
  * Paredes ocas à volta de `fronteira`. Abertas nos dois topos (z=0 e
- * z=profundidade): a frente cola-se no rebordo de cima; sem tampa, a fita
- * de LED e o cabo entram livremente pelo fundo aberto — não precisa de
- * furo dedicado (ao contrário de uma base fechada, isto é só um aro: não
- * há parede nenhuma a bloquear o fundo). Um furo lateral fixo seria frágil
- * em formas com pontas finas (ex. uma estrela) — o fundo aberto resolve
- * para qualquer silhueta.
+ * z=profundidade): a frente cola-se no rebordo de cima, a tampa (se
+ * pedida) no de baixo. Cada ponta tem um pequeno colarinho (rebordo
+ * ligeiramente mais largo que a parede normal) onde a frente/tampa
+ * encaixa por dentro antes de colar — autocentra a peça e dá mais área
+ * de cola, em vez de uma junta plana sem guia nenhuma.
+ *
+ * Sem tampa, a fita de LED e o cabo entram livremente pelo fundo aberto.
+ * Com `montagem: 'parede'`, abre-se também um furo lateral na parede
+ * (a meia altura, no ponto mais afastado do centro) para o cabo sair de
+ * lado — encostada à parede real, o fundo fica tapado e um furo aí ficava
+ * bloqueado.
  */
 export function corpoFatias(fronteira, geo) {
   const inner = offset(fronteira, -geo.paredeMm);
   const anel = diferenca(fronteira, inner);
   if (!anel.length) throw Object.assign(new Error('A forma ficou vazia depois de abrir a parede — reduz a espessura da parede ou aumenta a moldura.'), { status: 400 });
-  return [{ z0: 0, z1: geo.profundidadeMm, regiao: anel }];
+
+  const h = geo.profundidadeMm;
+  const temColarinho = h > 2 * COLARINHO_ALTURA + 4;
+  let fatias;
+  if (temColarinho) {
+    const anelColarinho = diferenca(offset(fronteira, COLARINHO_FOLGA), inner);
+    fatias = [
+      { z0: 0, z1: COLARINHO_ALTURA, regiao: anelColarinho },
+      { z0: COLARINHO_ALTURA, z1: h - COLARINHO_ALTURA, regiao: anel },
+      { z0: h - COLARINHO_ALTURA, z1: h, regiao: anelColarinho },
+    ];
+  } else {
+    fatias = [{ z0: 0, z1: h, regiao: anel }];
+  }
+
+  if (geo.montagem === 'parede') {
+    const ladoPt = pontoExtremo(anelMaior(fronteira), (x, y) => Math.abs(x));
+    const furoD = Math.max(4, Math.min(8, h * 0.35));
+    if (ladoPt) {
+      const zCentro = h / 2;
+      fatias = aplicarFuroEmFatias(fatias, circuloEm(ladoPt.x, ladoPt.y, furoD / 2), zCentro - furoD / 2, zCentro + furoD / 2);
+    }
+  }
+  return fatias;
 }
 
 /**
- * Tampa opcional: painel liso igual à frente, fecha o fundo do corpo. Com
- * furo para o cabo da fita de LED SÓ se o centro da forma (0,0) estiver
- * mesmo dentro dela — em formas muito finas/vazadas ao centro, sai sem
- * furo (o cabo passa pela folga entre a tampa e a parede).
+ * Tampa opcional: painel liso igual à frente, fecha o fundo do corpo.
+ * Com `montagem: 'parede'` sai sólida (sem furo) — o cabo sai pelo furo
+ * lateral do corpo, porque o fundo fica encostado à parede real. De pé
+ * (`montagem: 'pe'`, por defeito) sai com um furo perto da base — nunca
+ * no meio da peça — para o cabo descer até à mesa onde assenta, discreto.
+ * Em formas muito finas onde não há espaço com margem segura para o
+ * furo, sai sem ele (o cabo passa pela folga entre a tampa e a parede).
  */
 export function tampaFatias(fronteira, geo) {
   const furoD = 8;
-  const centroDentro = fronteira.some(poly => C.Clipper.PointInPolygon({ X: 0, Y: 0 }, poly) !== 0);
   let regiao = fronteira;
-  if (centroDentro) {
-    const seg = 32, pts = [];
-    for (let i = 0; i < seg; i++) {
-      const a = (i / seg) * 2 * Math.PI;
-      pts.push({ X: Math.round((furoD / 2) * Math.cos(a) * ESC), Y: Math.round((furoD / 2) * Math.sin(a) * ESC) });
-    }
-    regiao = diferenca(fronteira, [pts]);
+  if (geo.montagem === 'pe') {
+    const zonaSegura = offset(fronteira, -(furoD / 2 + 3));
+    const pt = pontoExtremo(zonaSegura, (x, y) => -y); // -y maior = y menor = mais perto da base
+    if (pt) regiao = diferenca(fronteira, circuloEm(pt.x, pt.y, furoD / 2));
   }
   return [{ z0: 0, z1: geo.espessuraTampaMm, regiao }];
 }
@@ -226,15 +300,21 @@ export function guiaCaixaLuzLogo(r, geo, formaTipo) {
   }
   L.push(...r.guia.map(g => '  ' + g));
   L.push('', sep, '', '  MONTAGEM:');
-  if (geo.temTampa) {
+  L.push(`  Fixação         : ${geo.montagem === 'parede' ? 'parede (furo lateral no corpo)' : 'de pé (furo na tampa, perto da base)'}`);
+  if (geo.montagem === 'parede') {
+    L.push('  * O cabo sai por um furo lateral no corpo (a meia altura) — o');
+    L.push('    fundo fica encostado à parede, por isso não tem furo nenhum.');
+  } else if (geo.temTampa) {
     L.push('  * Cola a fita de LED por dentro das paredes do corpo, à volta.');
-    L.push('  * Cola a tampa no fundo (passa o cabo pela folga antes de colar,');
-    L.push('    ou pelo furo no meio da tampa, se tiver saído com um).');
+    L.push('  * O cabo sai pelo furo na tampa (perto da base, não no meio) —');
+    L.push('    ou pela folga entre a tampa e a parede, se a forma não deu');
+    L.push('    espaço para o furo.');
   } else {
     L.push('  * Cola a fita de LED por dentro das paredes do corpo, à volta,');
     L.push('    perto do fundo aberto — fita virada para dentro/para a frente.');
   }
-  L.push('  * Cola a frente (painel fino) no rebordo de cima do corpo.');
+  if (geo.temTampa) L.push('  * Encaixa a tampa no colarinho do fundo do corpo e cola.');
+  L.push('  * Encaixa a frente (painel fino) no colarinho de cima do corpo e cola.');
   L.push('  * Cola as peças de cor por cima da frente, nos encaixes.');
   if (r.avisos.length) L.push('', '  AVISOS:', ...r.avisos.map(a => `  ! ${a}`));
   L.push('', '  NOTA: peca nova — confirma o encaixe frente/corpo e a difusão da', '  luz antes de produzir em serie.', '', sep);
