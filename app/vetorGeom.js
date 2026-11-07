@@ -38,7 +38,9 @@ export function normalizarParametros(p = {}) {
     n[k] = typeof PARAM_PADRAO[k] === 'number' ? Number(p[k]) : String(p[k]);
   }
   const lim = (k, a, b) => { if (!Number.isFinite(n[k])) n[k] = PARAM_PADRAO[k]; n[k] = Math.max(a, Math.min(b, n[k])); };
-  lim('largura', 15, 150); lim('contorno', 0, 10); lim('espessura_base', 0.8, 8); lim('relevo', 0.2, 5);
+  // Limites alargados para caber a Caixa de Luz (logótipos/sinalética — ver
+  // app/caixaLuzLogo.js), que pode ser bem maior que um porta-chaves.
+  lim('largura', 15, 600); lim('contorno', 0, 30); lim('espessura_base', 0.8, 8); lim('relevo', 0.2, 5);
   lim('furo_d', 2, 12); lim('detalhe_min', 0, 10); lim('encaixe', 0.2, 2); lim('folga', 0, 1); lim('cor_base', 0, 6);
   n.cor_base = Math.round(n.cor_base);
   if (!['pausas', 'pecas'].includes(n.metodo)) n.metodo = 'pausas';
@@ -261,6 +263,7 @@ export function construirPecas(vetor, parametros) {
   // Centra tudo na origem
   const dx = (minX + maxX) / 2, dy = (minY + maxY) / 2;
   for (const pc of pecas) for (const f of pc.fatias) f.regiao = f.regiao.map(q => q.map(pt => ({ X: pt.X - dx, Y: pt.Y - dy })));
+  const base2dCentrado = base2d.map(q => q.map(pt => ({ X: pt.X - dx, Y: pt.Y - dy })));
 
   return {
     pecas,
@@ -270,6 +273,10 @@ export function construirPecas(vetor, parametros) {
     guia,
     avisos,
     parametros: p,
+    // Contorno exterior da base (centrado, igual às fatias de "pecas") — para
+    // peças companheiras que precisam de encaixar exatamente nesta silhueta
+    // (ex.: a caixa de luz com LED atrás, em app/caixaLuzLogo.js).
+    base2d: base2dCentrado,
   };
 }
 

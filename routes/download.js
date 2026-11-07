@@ -20,7 +20,9 @@ import { scadVars }           from '../lib/scad.js';
 import { aplicarAjusteTexto } from '../lib/textFit.js';
 import { aplicarLogo } from '../lib/logo.js';
 import { ENGINE_VETOR, gerarFicheirosVetor, validarCaminhoImagem, obterVetor } from '../app/vetorPortachaves.js';
-import { tresMf, lerStl } from '../app/ficheiros3d.js';
+import { tresMf, lerStl, stlBinario } from '../app/ficheiros3d.js';
+import { fatiasParaTriangulos } from '../app/vetorGeom.js';
+import { construirCaixaLuzLogo, guiaCaixaLuzLogo } from '../app/caixaLuzLogo.js';
 
 const OPENSCAD_BIN = 'openscad';
 const TMP_DIR = path.join(process.cwd(), 'tmp');
@@ -265,7 +267,8 @@ export async function downloadStl(req, res) {
     const isCubo = tipo === 'litofania-cubo';
     const isCaixaLuzLito = tipo === 'litofania-caixa-luz';
     const isTermo = tipo === 'termoformagem-molde';
-    if (!isVetor && !isCubo && !isCaixaLuzLito && !isTermo && typeof paramsNormalizados.image_path === 'string' && paramsNormalizados.image_path.startsWith('uploads/')) {
+    const isCaixaLuzLogo = tipo === 'caixa-luz-logo';
+    if (!isVetor && !isCubo && !isCaixaLuzLito && !isTermo && !isCaixaLuzLogo && typeof paramsNormalizados.image_path === 'string' && paramsNormalizados.image_path.startsWith('uploads/')) {
       const imgUid = uuid();
       const rawPath  = path.join(TMP_DIR, `img_raw_${imgUid}.png`);
       const procPath = path.join(TMP_DIR, `img_proc_${imgUid}.png`);
@@ -488,6 +491,36 @@ export async function downloadStl(req, res) {
       const guiaPath = `${base}_guia.txt`;
       await fsp.writeFile(guiaPath, guiaTermoformagem(rt.g), 'ascii');
       files.push({ name: 'guia_termoformagem.txt', path: guiaPath });
+    } else if (isCaixaLuzLogo) {
+      // Caixa de Luz — logótipo/texto: corpo (novo, paredes ocas) + frente/cores
+      // (igual ao porta-chaves de imagem, ver construirPecas) + guia
+      if (typeof paramsNormalizados.image_path !== 'string' || !paramsNormalizados.image_path.startsWith(`uploads/${user.id}/`)) {
+        throw new Error('Carrega uma imagem/SVG.');
+      }
+      const vetorCL = await obterVetor(paramsNormalizados.image_path, paramsNormalizados);
+      const { r: rCL, geo: geoCL, corpoTris } = construirCaixaLuzLogo(vetorCL, paramsNormalizados);
+
+      const corpoPath = `${base}_corpo.stl`;
+      await fsp.writeFile(corpoPath, stlBinario(corpoTris, 'corpo'));
+      files.push({ name: 'corpo.stl', path: corpoPath });
+
+      if (rCL.parametros.modo === 'ams') {
+        const partes = rCL.pecas.map(pc => ({ nome: pc.nome, cor: pc.cor, tri: fatiasParaTriangulos(pc.fatias) }));
+        const mfPath = `${base}_frente.3mf`;
+        await fsp.writeFile(mfPath, await tresMf(partes, 'frente'));
+        files.push({ name: 'frente.3mf', path: mfPath });
+      } else {
+        for (const pc of rCL.pecas) {
+          const nomeF = rCL.pecas.length === 1 ? 'frente' : `frente_${pc.nome.replace(/\s+/g, '_')}${pc.solta ? `_${pc.cor.slice(1)}` : ''}`;
+          const p = `${base}_${nomeF}.stl`;
+          await fsp.writeFile(p, stlBinario(fatiasParaTriangulos(pc.fatias), pc.nome));
+          files.push({ name: `${nomeF}.stl`, path: p });
+        }
+      }
+
+      const guiaPath = `${base}_guia.txt`;
+      await fsp.writeFile(guiaPath, guiaCaixaLuzLogo(rCL, geoCL), 'ascii');
+      files.push({ name: 'guia_caixa_luz_logo.txt', path: guiaPath });
     } else if (isVetor) {
       const nomeBase = String(design.nome || 'porta-chaves').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').toLowerCase() || 'porta-chaves';
       for (const f of await gerarFicheirosVetor(paramsNormalizados.image_path, paramsNormalizados, nomeBase)) {
