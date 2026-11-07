@@ -108,8 +108,9 @@ export async function gerarStlHueforge(req, res) {
     const posY    = Number(rest.img_pos_y ?? 0);
     const modoCor = rest.modo_cor === true || rest.modo_cor === 1 || rest.modo_cor === '1';
 
-    // Hash para cache — inclui ajustes + modo de cor + versão (não serve STLs antigos)
-    const paramsKey = sha256(JSON.stringify({ v: 3, imagePath, numCores, layerHeight, espBase, altRelevo, larguraMm, alturaMm, contraste, brilho, ajuste, zoom, posX, posY, modoCor, renderMode }));
+    // Hash para cache — inclui ajustes + modo de cor + versão. Subir "v" sempre que
+    // mudar a geometria OU o guia TXT (a cache devolve os dois ficheiros antigos).
+    const paramsKey = sha256(JSON.stringify({ v: 4, imagePath, numCores, layerHeight, espBase, altRelevo, larguraMm, alturaMm, contraste, brilho, ajuste, zoom, posX, posY, modoCor, renderMode }));
     const stlFilename = `${produtoId}_hf_${paramsKey}.stl`;
     const folder      = `users/${user.id}/${renderMode}`;
     const stlStorage  = `${folder}/${stlFilename}`;
