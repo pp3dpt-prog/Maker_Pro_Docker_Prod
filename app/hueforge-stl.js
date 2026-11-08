@@ -3,6 +3,8 @@
  * Suporta: HueForge, Marcadores, Litofânia Plana e Litofânia Curva.
  */
 
+import { dentroForma, raioFormaLocal, topoLocalForma } from './litofaniaForma.js';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Alinhamento às camadas do slicer
 // ─────────────────────────────────────────────────────────────────────────────
@@ -259,6 +261,86 @@ export function generateLithophaneFlatStl({ heightmap: hmImagem, largura: largIm
   // Invert: dark pixel = thick (high z), light pixel = thin (low z)
   const h = (r, c) => espMin + (1 - heightmap[r][c]) * (espMax - espMin);
   return _buildHeightmapStl({ rows, cols, scaleX, scaleY, h, largura, altura });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Litofânia com Forma — enfeites de Natal recortados (coração, estrela, ...)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Painel fino de litofânia (igual à litofânia plana — escuro=espesso,
+ * claro=fino) recortado na silhueta de `forma` (ver litofaniaForma.js), com
+ * uma pequena argola furada no topo para pendurar. Em vez de um rectângulo,
+ * cada célula da grelha só gera superfície se o seu centro cair dentro da
+ * forma (ou da argola) — e ganha uma parede vertical em cada aresta onde o
+ * vizinho fica de fora, seguindo o contorno da silhueta.
+ */
+export function generateLithophaneShapeStl({ heightmap, tamanho, espMax, espMin, forma, janelaR = 0 }) {
+  const rows = heightmap.length;
+  const cols = heightmap[0].length;
+  const scaleX = tamanho / Math.max(1, cols - 1);
+  const scaleY = tamanho / Math.max(1, rows - 1);
+  const h = (r, c) => espMin + (1 - heightmap[r][c]) * (espMax - espMin);
+
+  const raioLocal = raioFormaLocal(forma);
+  const escala = (tamanho / 2) / raioLocal;
+  const topoLocalY = topoLocalForma(forma, raioLocal);
+
+  // Argola (encostada ao topo da forma) com furo para fio/fita.
+  const argolaR = Math.max(2.2, Math.min(4, tamanho * 0.05));
+  const furoR = argolaR * 0.52;
+  const argolaCx = tamanho / 2;
+  const argolaCy = tamanho / 2 + topoLocalY * escala + argolaR * 0.5;
+  const dentroArgola = (x, y) => (x - argolaCx) ** 2 + (y - argolaCy) ** 2 <= argolaR * argolaR;
+  const dentroFuro = (x, y) => (x - argolaCx) ** 2 + (y - argolaCy) ** 2 <= furoR * furoR;
+  // Janela opcional (moldura para foto): círculo vazado no centro do painel.
+  const janelaCx = tamanho / 2, janelaCy = tamanho / 2;
+  const dentroJanela = (x, y) => janelaR > 0 && (x - janelaCx) ** 2 + (y - janelaCy) ** 2 <= janelaR * janelaR;
+
+  // Máscara por vértice da grelha (dentro da silhueta + argola, menos o furo e a janela).
+  const dentro = Array.from({ length: rows }, (_, r) =>
+    Array.from({ length: cols }, (_, c) => {
+      const x = c * scaleX, y = r * scaleY;
+      const xl = (x - tamanho / 2) / escala, yl = (y - tamanho / 2) / escala;
+      return (dentroForma(forma, xl, yl) || dentroArgola(x, y)) && !dentroFuro(x, y) && !dentroJanela(x, y);
+    })
+  );
+
+  // Uma célula "existe" se a maioria dos seus 4 cantos estiver dentro —
+  // mais robusto do que só o centro nas pontas finas (estrela, galhadas).
+  const insideCell = (r, c) => {
+    if (r < 0 || c < 0 || r >= rows - 1 || c >= cols - 1) return false;
+    let n = 0;
+    if (dentro[r][c]) n++;
+    if (dentro[r][c + 1]) n++;
+    if (dentro[r + 1][c]) n++;
+    if (dentro[r + 1][c + 1]) n++;
+    return n >= 3;
+  };
+
+  let nInside = 0;
+  for (let r = 0; r < rows - 1; r++) for (let c = 0; c < cols - 1; c++) if (insideCell(r, c)) nInside++;
+  const stl = new EscritorStl(Math.max(16, nInside * 12));
+
+  for (let r = 0; r < rows - 1; r++) {
+    for (let c = 0; c < cols - 1; c++) {
+      if (!insideCell(r, c)) continue;
+      const x0 = c * scaleX, y0 = r * scaleY, x1 = (c + 1) * scaleX, y1 = (r + 1) * scaleY;
+      const z00 = h(r, c), z10 = h(r, c + 1), z01 = h(r + 1, c), z11 = h(r + 1, c + 1);
+
+      // Topo (relevo) e base (plana) — mesma orientação de _buildHeightmapStl.
+      stl.tri([x0, y0, z00], [x1, y0, z10], [x1, y1, z11]); stl.tri([x0, y0, z00], [x1, y1, z11], [x0, y1, z01]);
+      stl.tri([x0, y0, 0], [x1, y1, 0], [x1, y0, 0]); stl.tri([x0, y0, 0], [x0, y1, 0], [x1, y1, 0]);
+
+      // Paredes nas arestas de fronteira com a silhueta (ou com o bordo da grelha).
+      if (!insideCell(r - 1, c)) { stl.tri([x0, y0, 0], [x1, y0, z10], [x0, y0, z00]); stl.tri([x0, y0, 0], [x1, y0, 0], [x1, y0, z10]); }
+      if (!insideCell(r + 1, c)) { stl.tri([x0, y1, z01], [x1, y1, 0], [x0, y1, 0]); stl.tri([x0, y1, z01], [x1, y1, z11], [x1, y1, 0]); }
+      if (!insideCell(r, c - 1)) { stl.tri([x0, y0, z00], [x0, y1, 0], [x0, y0, 0]); stl.tri([x0, y0, z00], [x0, y1, z01], [x0, y1, 0]); }
+      if (!insideCell(r, c + 1)) { stl.tri([x1, y0, 0], [x1, y1, z11], [x1, y0, z10]); stl.tri([x1, y0, 0], [x1, y1, 0], [x1, y1, z11]); }
+    }
+  }
+
+  return stl.fim();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -15,7 +15,7 @@ import { fileURLToPath } from 'url';
 import { dirname }       from 'path';
 import Jimp from 'jimp';
 
-import { alinharCamadasHueforge, generateHueforgeStl, generateBookmarkStl, generateLithophaneFlatStl, generateLithophaneCurvedStl, generateLithophaneSphereStl } from '../app/hueforge-stl.js';
+import { alinharCamadasHueforge, generateHueforgeStl, generateBookmarkStl, generateLithophaneFlatStl, generateLithophaneCurvedStl, generateLithophaneSphereStl, generateLithophaneShapeStl } from '../app/hueforge-stl.js';
 import { frameImage, aspectForFamily, targetLongPxForFamily, heightFracBeerLambert, litoFracLuz, esferaGeometria } from '../app/image-proc.js';
 import { gerarStlPro, buildHueforgeTxt } from './gerar-stl-pro.js';
 import { buildLitofaniaTxt } from '../app/litofania-guia.js';
@@ -75,7 +75,7 @@ export async function gerarStlHueforge(req, res) {
 
     // Tipo de gerador (engine ou, nos designs antigos, a família) — ver lib/tipoDesign.js
     const familia = tipoDesign(design);
-    const JS_FAMILIES = ['hueforge', 'marcadores', 'portachaves', 'litofania', 'litofania-curva', 'litofania-esfera', 'litofania-cubo'];
+    const JS_FAMILIES = ['hueforge', 'marcadores', 'portachaves', 'litofania', 'litofania-curva', 'litofania-esfera', 'litofania-cubo', 'litofania-forma'];
     const isJsMode = JS_FAMILIES.includes(familia);
 
     // Produtos não suportados em JS delegam para gerar-stl-pro (OpenSCAD)
@@ -113,6 +113,9 @@ export async function gerarStlHueforge(req, res) {
     const altRelevo      = camadas.altRelevo;
     const larguraMm    = Number(rest.largura_mm     ?? (isMarcador ? 20  : 100));
     const alturaMm     = Number(rest.altura_mm      ?? (isMarcador ? 150 : 100));
+    const tamanhoMm    = Number(rest.tamanho_mm ?? 50);          // litofania-forma (enfeites)
+    const espMinForma  = Number(rest.esp_min ?? 0.5);
+    const espMaxForma  = Number(rest.esp_max ?? 2.2);
     const contraste    = Math.max(-1, Math.min(1, Number(rest.contraste ?? 0)));
     const brilho       = Math.max(-1, Math.min(1, Number(rest.brilho    ?? 0)));
 
@@ -125,10 +128,11 @@ export async function gerarStlHueforge(req, res) {
 
     // Hash para cache — inclui ajustes + modo de cor + versão. Subir "v" sempre que
     // mudar a geometria OU o guia TXT (a cache devolve os dois ficheiros antigos).
-    const paramsKey = sha256(JSON.stringify({ v: 7, imagePath, numCores, layerHeight, primeiraCamada,
+    const paramsKey = sha256(JSON.stringify({ v: 8, imagePath, numCores, layerHeight, primeiraCamada,
       esp_min: rest.esp_min, esp_max: rest.esp_max, raio: rest.raio, angulo: rest.angulo, moldura: rest.moldura_mm, diametro: rest.diametro_mm, furo_led: rest.furo_led_mm,
       lado: rest.lado_mm, luz: rest.luz, img2: rest.image_path_2, img3: rest.image_path_3, img4: rest.image_path_4,
-      hole_diameter: rest.hole_diameter, hole_margin_top: rest.hole_margin_top, espBase, altRelevo, larguraMm, alturaMm, contraste, brilho, ajuste, zoom, posX, posY, modoCor, renderMode }));
+      hole_diameter: rest.hole_diameter, hole_margin_top: rest.hole_margin_top, espBase, altRelevo, larguraMm, alturaMm, contraste, brilho, ajuste, zoom, posX, posY, modoCor, renderMode,
+      forma: rest.forma, tamanhoMm }));
     const stlFilename = `${produtoId}_hf_${paramsKey}.stl`;
     const folder      = `users/${user.id}/${renderMode}`;
     const stlStorage  = `${folder}/${stlFilename}`;
@@ -294,6 +298,8 @@ export async function gerarStlHueforge(req, res) {
     } else if (familia === 'litofania-esfera') {
       stlBuffer = generateLithophaneSphereStl({ heightmap, geo: esferaGeometria(rest),
         espMax: Number(rest.esp_max ?? 3.0), espMin: Number(rest.esp_min ?? 0.6) });
+    } else if (familia === 'litofania-forma') {
+      stlBuffer = generateLithophaneShapeStl({ heightmap, tamanho: tamanhoMm, espMax: espMaxForma, espMin: espMinForma, forma: rest.forma, janelaR: Number(rest.janela_mm ?? 0) });
     } else {
       stlBuffer = generateHueforgeStl({ heightmap, largura: larguraMm, altura: alturaMm, espBase, altRelevo });
     }
@@ -304,12 +310,15 @@ export async function gerarStlHueforge(req, res) {
 
     // Gerar TXT: guia de impressão (litofânias) ou de troca de filamento (HueForge)
     const isLito = familia.startsWith('litofania');
+    const isForma = familia === 'litofania-forma';
     const txtContent = isLito
       ? buildLitofaniaTxt({
           curva: familia === 'litofania-curva', esfera: familia === 'litofania-esfera',
+          forma: isForma ? (rest.forma || 'redondo') : null,
           diametro: Number(rest.diametro_mm ?? 80), furoLed: Number(rest.furo_led_mm ?? 40),
-          larguraMm, alturaMm,
-          espMin: Number(rest.esp_min ?? 0.6), espMax: Number(rest.esp_max ?? 3.0),
+          larguraMm: isForma ? tamanhoMm : larguraMm, alturaMm: isForma ? tamanhoMm : alturaMm,
+          espMin: isForma ? espMinForma : Number(rest.esp_min ?? 0.6),
+          espMax: isForma ? espMaxForma : Number(rest.esp_max ?? 3.0),
           moldura: Number(rest.moldura_mm ?? 3),
           raio: Number(rest.raio ?? 50), angulo: Number(rest.angulo ?? 270),
         })
