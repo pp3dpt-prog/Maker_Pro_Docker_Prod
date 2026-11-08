@@ -40,6 +40,8 @@ function _topo_faces(o) = len(_topo_pts()) == 0 ? [] : estrela_faces(5, o);
 //   _NA()          colunas
 //   _zrows()       alturas das linhas da parede de fora (a primeira é 0, a última é o topo)
 //   r_at(a, z)     distância ao centro da parede de fora (a em graus)
+//   _linha(z), r_at_linha(a, z, c)  o mesmo com a parte que só depende de z calculada uma vez por
+//                  linha (c = _linha(z)); quem não precisa: _linha(z) = 0 e r_at_linha = r_at
 //   _oco()         true = oca por baixo
 //   _zirows()      alturas das linhas da cavidade (a primeira é 0)
 //   rc_at(z)       raio da cavidade; a cavidade acaba na primeira linha com menos de 3 mm
@@ -49,7 +51,8 @@ function _ang(i) = i * 360 / _NA();
 
 module arvore() {
     NA = _NA(); ZR = _zrows(); K = len(ZR) - 1; R = K + 1;
-    ext = [for (i = [0 : NA - 1], k = [0 : K]) let(a = _ang(i), r = r_at(a, ZR[k])) [r * cos(a), r * sin(a), ZR[k]]];
+    LZ = [for (z = ZR) _linha(z)];                                     // o que só depende de z, calculado uma vez por linha
+    ext = [for (i = [0 : NA - 1], k = [0 : K]) let(a = _ang(i), r = r_at_linha(a, ZR[k], LZ[k])) [r * cos(a), r * sin(a), ZR[k]]];
     T = NA * R;                                                        // centro da tampa da ponta
     parede = [for (i = [0 : NA - 1], k = [0 : K - 1], t = _q(i * R + k, ((i + 1) % NA) * R + k, ((i + 1) % NA) * R + k + 1, i * R + k + 1)) t];
     tampa  = [for (i = [0 : NA - 1]) [T, i * R + K, ((i + 1) % NA) * R + K]];
@@ -120,5 +123,8 @@ function r_at(a, z) = perfil(z) + desloc(a, z);
 function _zrows()  = let(K = max(24, ceil(_H() / (_prev() ? 2.4 : 1.2)))) [for (k = [0 : K]) _H() * k / K];
 function _zirows() = let(K = max(8, ceil(_H() / 4))) [for (k = [0 : K]) _H() * k / K];
 function rc_at(z) = z > _H() - 6 ? -1 : perfil(z) - _t() * sqrt(1 + dperfil(z) * dperfil(z));
+
+function _linha(z) = 0;
+function r_at_linha(a, z, c) = r_at(a, z);
 
 arvore();

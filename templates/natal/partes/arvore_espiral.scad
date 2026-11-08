@@ -32,4 +32,7 @@ function rc_at(z) = z > _H() - 6 ? -1 :
     let(rv = perfil(z) * (1 - _p()), d = dperfil(z) * (1 - _p()), ti = rv * _tw() * PI / 180 / _H())
     rv - _t() * sqrt(1 + d * d + ti * ti);
 
+function _linha(z) = 0;
+function r_at_linha(a, z, c) = r_at(a, z);
+
 arvore();

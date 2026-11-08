@@ -43,4 +43,7 @@ function _zrows()  = let(K = max(24, ceil(_H() / (_prev() ? 2.4 : 1.2)))) [for (
 function _zirows() = let(K = max(8, ceil(_H() / 4))) [for (k = [0 : K]) _H() * k / K];
 function rc_at(z) = z > _H() - 6 ? -1 : perfil(z) - _t() * sqrt(1 + dperfil(z) * dperfil(z));
 
+function _linha(z) = 0;
+function r_at_linha(a, z, c) = r_at(a, z);
+
 arvore();
