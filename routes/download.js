@@ -23,6 +23,8 @@ import { ENGINE_VETOR, gerarFicheirosVetor, validarCaminhoImagem, obterVetor } f
 import { tresMf, lerStl, stlBinario } from '../app/ficheiros3d.js';
 import { fatiasParaTriangulos } from '../app/vetorGeom.js';
 import { construirCaixaLuzLogo, guiaCaixaLuzLogo } from '../app/caixaLuzLogo.js';
+import { vetorizarLinhasSvg } from '../app/vetorLinhas.js';
+import { construirCaixaLuzNeon, guiaCaixaLuzNeon } from '../app/caixaLuzNeon.js';
 
 const OPENSCAD_BIN = 'openscad';
 const TMP_DIR = path.join(process.cwd(), 'tmp');
@@ -268,7 +270,8 @@ export async function downloadStl(req, res) {
     const isCaixaLuzLito = tipo === 'litofania-caixa-luz';
     const isTermo = tipo === 'termoformagem-molde';
     const isCaixaLuzLogo = tipo === 'caixa-luz-logo';
-    if (!isVetor && !isCubo && !isCaixaLuzLito && !isTermo && !isCaixaLuzLogo && typeof paramsNormalizados.image_path === 'string' && paramsNormalizados.image_path.startsWith('uploads/')) {
+    const isCaixaLuzNeon = tipo === 'caixa-luz-neon';
+    if (!isVetor && !isCubo && !isCaixaLuzLito && !isTermo && !isCaixaLuzLogo && !isCaixaLuzNeon && typeof paramsNormalizados.image_path === 'string' && paramsNormalizados.image_path.startsWith('uploads/')) {
       const imgUid = uuid();
       const rawPath  = path.join(TMP_DIR, `img_raw_${imgUid}.png`);
       const procPath = path.join(TMP_DIR, `img_proc_${imgUid}.png`);
@@ -527,6 +530,26 @@ export async function downloadStl(req, res) {
       const guiaPath = `${base}_guia.txt`;
       await fsp.writeFile(guiaPath, guiaCaixaLuzLogo(rCL, geoCL, formaTipo), 'ascii');
       files.push({ name: 'guia_caixa_luz_logo.txt', path: guiaPath });
+    } else if (isCaixaLuzNeon) {
+      // Caixa de Luz — Canal de Neon: segue uma linha (nome/traço ou SVG a
+      // linhas) e gera um canal em U só — sem separação de cores, sem frente.
+      if (typeof paramsNormalizados.image_path !== 'string' || !paramsNormalizados.image_path.startsWith(`uploads/${user.id}/`)) {
+        throw Object.assign(new Error('Carrega um SVG com linhas.'), { status: 400 });
+      }
+      const { data: svgData, error: svgErr } = await supabase.storage
+        .from('makers_pro_stl_prod')
+        .download(paramsNormalizados.image_path);
+      if (svgErr || !svgData) throw new Error(`Erro ao descarregar o SVG: ${svgErr?.message}`);
+      const vetorN = vetorizarLinhasSvg(Buffer.from(await svgData.arrayBuffer()));
+      const resN = construirCaixaLuzNeon(vetorN, paramsNormalizados);
+
+      const canalPath = `${base}_canal.stl`;
+      await fsp.writeFile(canalPath, stlBinario(resN.tris, 'canal'));
+      files.push({ name: 'canal.stl', path: canalPath });
+
+      const guiaPath = `${base}_guia.txt`;
+      await fsp.writeFile(guiaPath, guiaCaixaLuzNeon(resN), 'ascii');
+      files.push({ name: 'guia_caixa_luz_neon.txt', path: guiaPath });
     } else if (isVetor) {
       const nomeBase = String(design.nome || 'porta-chaves').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').toLowerCase() || 'porta-chaves';
       for (const f of await gerarFicheirosVetor(paramsNormalizados.image_path, paramsNormalizados, nomeBase)) {
