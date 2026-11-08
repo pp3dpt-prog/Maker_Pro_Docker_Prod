@@ -1,0 +1,268 @@
+{
+  "engine": "openscad",
+  "version": 1,
+  "parameters": {
+    "enfeite": {
+      "ui": {
+        "widget": "hidden"
+      },
+      "order": 0,
+      "default": "natal"
+    },
+    "forma": {
+      "ui": {
+        "label": "Forma",
+        "widget": "select",
+        "options": [
+          "Rena",
+          "Boneco de gengibre",
+          "Árvore",
+          "Bola",
+          "Estrela",
+          "Floco de neve",
+          "Laço",
+          "Sino",
+          "Bota",
+          "Boneco de neve",
+          "Bengala",
+          "Luva"
+        ]
+      },
+      "order": 1,
+      "default": "Boneco de gengibre"
+    },
+    "nome": {
+      "ui": {
+        "label": "Nome (opcional)",
+        "widget": "text",
+        "maxLength": 16
+      },
+      "order": 2,
+      "default": ""
+    },
+    "fonte": {
+      "ui": {
+        "label": "Tipo de letra",
+        "widget": "select",
+        "options": [
+          "Luckiest Guy",
+          "Chewy",
+          "Baloo 2",
+          "Sigmar One",
+          "Pacifico",
+          "Lobster",
+          "Open Sans"
+        ]
+      },
+      "order": 3,
+      "default": "Luckiest Guy"
+    },
+    "tamanho": {
+      "ui": {
+        "step": 5,
+        "label": "Tamanho (lado maior, com a argola)",
+        "widget": "slider"
+      },
+      "type": "number",
+      "unit": "mm",
+      "min": 50,
+      "max": 120,
+      "order": 4,
+      "default": 80
+    },
+    "largura_linha": {
+      "ui": {
+        "step": 0.1,
+        "label": "Largura das linhas",
+        "widget": "slider"
+      },
+      "type": "number",
+      "unit": "mm",
+      "min": 1.6,
+      "max": 3.2,
+      "order": 5,
+      "default": 2.2
+    },
+    "espessura": {
+      "ui": {
+        "step": 0.2,
+        "label": "Espessura da base",
+        "widget": "slider"
+      },
+      "type": "number",
+      "unit": "mm",
+      "min": 2,
+      "max": 4,
+      "order": 6,
+      "default": 3
+    },
+    "impressao": {
+      "ui": {
+        "label": "Impressora",
+        "widget": "select",
+        "options": [
+          "AMS (3MF multicor)",
+          "Sem AMS (troca de cor manual)"
+        ]
+      },
+      "order": 8,
+      "default": "AMS (3MF multicor)"
+    },
+    "cor_base": {
+      "ui": {
+        "label": "Cor da base",
+        "widget": "color",
+        "paleta": [
+          {
+            "hex": "#6B3A1E",
+            "nome": "Castanho"
+          },
+          {
+            "hex": "#E0A526",
+            "nome": "Dourado"
+          },
+          {
+            "hex": "#C0C0C0",
+            "nome": "Prateado"
+          },
+          {
+            "hex": "#FFFFFF",
+            "nome": "Branco"
+          },
+          {
+            "hex": "#111111",
+            "nome": "Preto"
+          },
+          {
+            "hex": "#B91C1C",
+            "nome": "Vermelho"
+          },
+          {
+            "hex": "#15803D",
+            "nome": "Verde"
+          },
+          {
+            "hex": "#1E3A8A",
+            "nome": "Azul"
+          },
+          {
+            "hex": "#F472B6",
+            "nome": "Rosa"
+          },
+          {
+            "hex": "#7C3AED",
+            "nome": "Roxo"
+          }
+        ]
+      },
+      "order": 9,
+      "default": "#6B3A1E"
+    },
+    "cor_relevo": {
+      "ui": {
+        "label": "Cor do relevo (contorno, detalhes e nome)",
+        "widget": "color",
+        "paleta": [
+          {
+            "hex": "#6B3A1E",
+            "nome": "Castanho"
+          },
+          {
+            "hex": "#E0A526",
+            "nome": "Dourado"
+          },
+          {
+            "hex": "#C0C0C0",
+            "nome": "Prateado"
+          },
+          {
+            "hex": "#FFFFFF",
+            "nome": "Branco"
+          },
+          {
+            "hex": "#111111",
+            "nome": "Preto"
+          },
+          {
+            "hex": "#B91C1C",
+            "nome": "Vermelho"
+          },
+          {
+            "hex": "#15803D",
+            "nome": "Verde"
+          },
+          {
+            "hex": "#1E3A8A",
+            "nome": "Azul"
+          },
+          {
+            "hex": "#F472B6",
+            "nome": "Rosa"
+          },
+          {
+            "hex": "#7C3AED",
+            "nome": "Roxo"
+          }
+        ]
+      },
+      "order": 10,
+      "default": "#E0A526"
+    },
+    "info_enfeite": {
+      "ui": {
+        "widget": "info",
+        "text": "🎄 Base numa cor e o contorno, os detalhes e o nome em relevo noutra. Sem AMS: troca o filamento na camada do fim da base (vem no LEIA-ME). O nome encolhe sozinho para caber; a bengala não leva nome."
+      },
+      "order": 99,
+      "default": null
+    }
+  },
+  "multicor": {
+    "param_impressao": "impressao",
+    "troca_cor_param": "espessura",
+    "partes": [
+      {
+        "modo": "base",
+        "nome": "Base",
+        "cor_param": "cor_base"
+      },
+      {
+        "modo": "relevo",
+        "nome": "Relevo",
+        "cor_param": "cor_relevo"
+      }
+    ]
+  },
+  "ajuste_texto": {
+    "campos": [
+      "nome"
+    ],
+    "largura_util": 30,
+    "largura_por_forma": {
+      "Rena": 20.4,
+      "Boneco de gengibre": 19,
+      "Árvore": 31.5,
+      "Bola": 43.9,
+      "Estrela": 27.2,
+      "Floco de neve": 17.6,
+      "Laço": 57.6,
+      "Sino": 23.5,
+      "Bota": 26.1,
+      "Boneco de neve": 26,
+      "Luva": 32.5
+    },
+    "tamanho_por_forma": {
+      "Rena": 4.9,
+      "Boneco de gengibre": 4.6,
+      "Árvore": 4.8,
+      "Bola": 7.8,
+      "Estrela": 5.7,
+      "Floco de neve": 4.1,
+      "Laço": 7.1,
+      "Sino": 5.5,
+      "Bota": 5.7,
+      "Boneco de neve": 5.4,
+      "Luva": 6.5
+    }
+  }
+}
