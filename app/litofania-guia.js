@@ -2,13 +2,13 @@
  * Guia TXT de impressão para litofânias (plana e curva).
  * ASCII simples (sem acentos) para abrir bem em qualquer editor/slicer.
  */
-export function buildLitofaniaTxt({ cubo = false, geoCubo = null, curva = false, esfera = false, larguraMm, alturaMm, espMin, espMax, moldura = 0, raio, angulo, diametro, furoLed }) {
+export function buildLitofaniaTxt({ cubo = false, geoCubo = null, curva = false, esfera = false, forma = null, larguraMm, alturaMm, espMin, espMax, moldura = 0, raio, angulo, diametro, furoLed }) {
   const fmt = (v) => Number(v).toFixed(1);
   const sep = '='.repeat(49);
   if (cubo && geoCubo) return guiaCubo(geoCubo, fmt, sep);
   const L = [
     sep,
-    `  LITOFANIA ${esfera ? 'ESFERA (BOLA DE NATAL)' : curva ? 'CURVA' : 'PLANA'} - Guia de Impressao`,
+    `  LITOFANIA ${esfera ? 'ESFERA (BOLA DE NATAL)' : curva ? 'CURVA' : forma ? `ENFEITE (${forma.toUpperCase()})` : 'PLANA'} - Guia de Impressao`,
     sep,
     '',
   ];
@@ -22,6 +22,10 @@ export function buildLitofaniaTxt({ cubo = false, geoCubo = null, curva = false,
     L.push(`  Raio exterior   : ${fmt(raio)} mm   (diametro ${fmt(2 * raio)} mm)`);
     L.push(`  Angulo          : ${angulo} graus  (arco de ${fmt(arco)} mm)`);
     L.push(`  Altura          : ${fmt(alturaMm)} mm`);
+  } else if (forma) {
+    L.push(`  Forma           : ${forma}`);
+    L.push(`  Tamanho         : ${fmt(larguraMm)} x ${fmt(alturaMm)} mm`);
+    L.push(`  Argola          : furo no topo, pronta para fio ou fita`);
   } else {
     const m = Number(moldura) || 0;
     L.push(`  Imagem          : ${fmt(larguraMm)} x ${fmt(alturaMm)} mm`);
@@ -46,6 +50,9 @@ export function buildLitofaniaTxt({ cubo = false, geoCubo = null, curva = false,
   } else if (curva) {
     L.push('  * Imprime de pe (como sai do ficheiro), com brim de 5 mm');
     L.push('    para nao descolar da base.');
+  } else if (forma) {
+    L.push('  * Imprime deitado (como sai do ficheiro). Peca pequena,');
+    L.push('    nao precisa de brim nem suportes.');
   } else {
     L.push('  * Melhor qualidade: imprimir DE PE (rodar 90 graus no slicer,');
     L.push('    lado mais comprido assente na base) com brim de 5-8 mm.');
@@ -61,6 +68,9 @@ export function buildLitofaniaTxt({ cubo = false, geoCubo = null, curva = false,
   } else if (curva) {
     L.push('  * Luz por DENTRO (LED quente, de preferencia sem aquecer).');
     L.push('    A imagem le-se pelo lado de fora (liso).');
+  } else if (forma) {
+    L.push('  * Pendura ao pe de uma luz ou janela (fio/fita pela argola) —');
+    L.push('    a imagem le-se pelo lado LISO, com o relevo voltado para a luz.');
   } else {
     L.push('  * Luz por TRAS. A imagem le-se pelo lado LISO, com o relevo');
     L.push('    virado para a luz.');

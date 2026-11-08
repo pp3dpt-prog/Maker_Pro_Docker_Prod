@@ -92,6 +92,8 @@ export function targetLongPxForFamily(familia, p, { pxPerMm = 5, maxGridPx = 600
     longoMm = Math.max(g.R * g.A, g.R * (g.phi2 - g.phi1));
   } else if (f === 'portachaves') {
     longoMm = Math.max(Number(p.largura ?? p.largura_mm ?? 55), Number(p.altura ?? p.altura_mm ?? 35));
+  } else if (f === 'litofania-forma') {
+    longoMm = Number(p.tamanho_mm ?? 50);
   } else {
     longoMm = Math.max(Number(p.largura_mm ?? 100), Number(p.altura_mm ?? 100));
   }
@@ -156,6 +158,7 @@ export function aspectForFamily(familia, p) {
     const g = esferaGeometria(p);
     return g.A / (g.phi2 - g.phi1);
   }
+  if (f === 'litofania-forma') return 1; // painel quadrado
   // hueforge, marcadores, litofania
   const lw = Number(p.largura_mm ?? 100);
   const lh = Number(p.altura_mm  ?? 100);
