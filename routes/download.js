@@ -625,6 +625,7 @@ export async function downloadStl(req, res) {
         const litoTxt = buildLitofaniaTxt({
           curva: familiaLower === 'litofania-curva',
           esfera: familiaLower === 'litofania-esfera',
+          geoEsfera: familiaLower === 'litofania-esfera' ? esferaGeometria(paramsNormalizados) : null,
           diametro: Number(paramsNormalizados.diametro_mm ?? 80),
           furoLed:  Number(paramsNormalizados.furo_led_mm ?? 40),
           larguraMm: Number(paramsNormalizados.largura_mm ?? 150),

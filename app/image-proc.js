@@ -9,6 +9,7 @@
  */
 
 import Jimp from 'jimp';
+import { tampaGeometria } from './tampaBola.js';
 
 /**
  * Devolve uma cópia da imagem enquadrada numa moldura com o rácio da peça,
@@ -193,21 +194,30 @@ export function litoFracLuz(gray255, espMin, espMax, K = LITO_K_PLA_BRANCO) {
  * Litofânia esfera (bola de Natal): geometria comum ao gerador STL, ao
  * enquadramento da imagem e (replicada) à pré-visualização do frontend.
  * Ângulos em radianos; latitude 0 = equador, +90° = topo.
- *  - phiCut: corte plano em baixo (furo para a vela LED, assenta na base)
+ *  - phiCut: corte em baixo. Com fecho "Furo simples" o corte é um furo (de
+ *    diâmetro furo_led_mm) para meter a vela; com a tampa, o corte assenta numa
+ *    gola com baioneta de ¼ de volta (app/tampaBola.js) e a vela vai na tampa.
  *  - phi1..phi2: faixa com a imagem (zona quase vertical → paredes finas
  *    imprimem bem sem suportes); fora dela a parede é grossa
  *  - A: ângulo horizontal ocupado pela imagem (2π = toda a volta)
+ *  - tampa: geometria da gola/tampa (null com furo simples); hc = altura da gola
  */
 export function esferaGeometria(p) {
   const deg = Math.PI / 180;
-  const R = Math.max(25, Math.min(75, Number(p.diametro_mm ?? 80) / 2));
-  const furo = Math.max(10, Math.min(1.7 * R, Number(p.furo_led_mm ?? 40)));
-  const phiCut = -Math.acos(Math.min(0.99, furo / 2 / R));
+  const espMax = Math.max(Number(p.esp_min ?? 0.6) + 0.1, Number(p.esp_max ?? 3.0));
+  const tampa = comTampa(p) ? tampaGeometria(p.diametro_vela ?? 38) : null;
+  // raio do corte por fora: gola (tampa) ou furo + parede (o furo é a abertura que fica livre)
+  const rCorte = tampa ? tampa.rg : Math.max(5, Number(p.furo_led_mm ?? 40) / 2) + espMax;
+  // a bola tem de ser bem maior do que o corte (fundo pouco inclinado → imprime sem suportes)
+  const R = Math.max(25, rCorte / 0.65, Math.min(75, Number(p.diametro_mm ?? 80) / 2));
+  const furo = tampa ? 2 * tampa.ra : 2 * (rCorte - espMax);
+  const phiCut = -Math.acos(Math.min(0.99, rCorte / R));
   const phi1 = Math.max(-30 * deg, phiCut + 6 * deg);
   const phi2 = 40 * deg;
   const A = Math.max(30, Math.min(360, Number(p.angulo ?? 360))) * deg;
-  return { R, furo, phiCut, phi1, phi2, A };
+  return { R, furo, phiCut, phi1, phi2, A, tampa, hc: tampa ? tampa.hc : 0 };
 }
+export const comTampa = (p) => !/^furo/i.test(String(p?.fecho ?? 'Tampa').trim());
 
 /**
  * Litofânia: imagem Jimp crua → heightmap (frações 0..1, 1 = mais fino/claro)

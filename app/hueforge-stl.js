@@ -3,6 +3,8 @@
  * Suporta: HueForge, Marcadores, Litofânia Plana e Litofânia Curva.
  */
 
+import { golaTriangulos, tampaTriangulos } from './tampaBola.js';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Alinhamento às camadas do slicer
 // ─────────────────────────────────────────────────────────────────────────────
@@ -350,7 +352,9 @@ export function generateLithophaneCurvedStl({ heightmap, alturaMm, raio, angulo,
 /**
  * Esfera oca com a imagem numa faixa à volta do equador (ver esferaGeometria
  * em image-proc.js). Em baixo um corte plano com furo para a vela LED (assenta
- * na base da impressora); em cima um topo maciço e uma argola para pendurar.
+ * na base da impressora) ou, com tampa, uma gola com baioneta de ¼ de volta e a
+ * tampa com a vela ao lado, no mesmo STL (app/tampaBola.js); em cima um topo
+ * maciço e uma argola para pendurar.
  * Imprime de pé e sem suportes: as zonas com grande inclinação (topo e fundo)
  * têm parede grossa; as paredes finas da imagem ficam na zona quase vertical.
  *
@@ -358,7 +362,7 @@ export function generateLithophaneCurvedStl({ heightmap, alturaMm, raio, angulo,
  * para a direita (+x), linha 0 do heightmap = topo da faixa.
  */
 export function generateLithophaneSphereStl({ heightmap, geo, espMax, espMin }) {
-  const { R, phiCut, phi1, phi2, A } = geo;
+  const { R, phiCut, phi1, phi2, A, tampa, hc = 0 } = geo;
   const rows = heightmap.length, cols = heightmap[0].length;
   const completo = A >= 2 * Math.PI - 1e-6;
   const capT = Math.max(espMax, 3);
@@ -366,7 +370,8 @@ export function generateLithophaneSphereStl({ heightmap, geo, espMax, espMin }) 
 
   // Grelha: longitude com o passo da imagem; latitude do corte até junto ao polo
   const dPhiImg = (phi2 - phi1) / Math.max(1, rows - 1);
-  const NL = Math.min(900, Math.max(48, completo ? cols : Math.round(cols * 2 * Math.PI / A)));
+  // com tampa a gola precisa de ranhuras vivas → longitudes fixas (720, meio grau)
+  const NL = tampa ? 720 : Math.min(900, Math.max(48, completo ? cols : Math.round(cols * 2 * Math.PI / A)));
   const nLat = Math.max(8, Math.ceil((Math.PI / 2 - phiCut) / dPhiImg));
   const phis = Array.from({ length: nLat }, (_, i) => phiCut + i * (Math.PI / 2 - phiCut) / nLat);
   const lams = Array.from({ length: NL }, (_, j) => -Math.PI + j * 2 * Math.PI / NL);
@@ -401,15 +406,15 @@ export function generateLithophaneSphereStl({ heightmap, geo, espMax, espMin }) 
   };
 
   const zCut = R * Math.sin(phiCut);
-  const dz = -zCut;                          // corte em z = 0
+  const dz = hc - zCut;                      // corte em z = 0 (ou em cima da gola, z = hc)
   const P = (rad, lam, phi) => [rad * Math.cos(phi) * Math.sin(lam), -rad * Math.cos(phi) * Math.cos(lam), rad * Math.sin(phi) + dz];
 
   const outer = phis.map(phi => lams.map(lam => P(R, lam, phi)));
   const inner = phis.map((phi, i) => lams.map(lam => {
     const t = esp(lam, phi);
-    if (i === 0) {   // anel de baixo plano (mesmo z do exterior)
-      const rr = R * Math.cos(phiCut) - t;
-      return [rr * Math.sin(lam), -rr * Math.cos(lam), 0];
+    if (i === 0) {   // anel de baixo plano (mesmo z do exterior); com tampa liga ao topo da gola
+      const rr = tampa ? tampa.ra : R * Math.cos(phiCut) - t;
+      return [rr * Math.sin(lam), -rr * Math.cos(lam), hc];
     }
     return P(R - t, lam, phi);
   }));
@@ -425,7 +430,14 @@ export function generateLithophaneSphereStl({ heightmap, geo, espMax, espMin }) 
     return [rr * cu, tMin * Math.sin(v), cz + rr * su];
   };
 
-  const nTri = 2 * (2 * (nLat - 1) * NL + NL) + 2 * NL + 2 * U * V;
+  // gola + tampa (ao lado da bola, aba para baixo): calculadas primeiro para saber quantos triângulos são
+  const extra = [];
+  if (tampa) {
+    const emit = (a, b, c) => extra.push(a, b, c);
+    golaTriangulos(tampa, lams, (j) => outer[0][j], emit);
+    tampaTriangulos(tampa, emit, { x0: R + tampa.rf + 8 });
+  }
+  const nTri = 2 * (2 * (nLat - 1) * NL + NL) + (tampa ? 0 : 2 * NL) + 2 * U * V + extra.length / 3;
   const stl = new EscritorStl(nTri);
 
   for (let i = 0; i < nLat - 1; i++) {
@@ -442,10 +454,12 @@ export function generateLithophaneSphereStl({ heightmap, geo, espMax, espMin }) 
     const k = (j + 1) % NL;
     stl.tri(outer[L][j], outer[L][k], poloExt);                    // tampa exterior
     stl.tri(inner[L][j], poloInt, inner[L][k]);                    // tecto interior
-    // anel de baixo (normal −z)
-    stl.tri(outer[0][j], inner[0][j], inner[0][k]);
-    stl.tri(outer[0][j], inner[0][k], outer[0][k]);
+    if (!tampa) {   // anel de baixo (normal −z); com tampa é a gola que fecha
+      stl.tri(outer[0][j], inner[0][j], inner[0][k]);
+      stl.tri(outer[0][j], inner[0][k], outer[0][k]);
+    }
   }
+  for (let i = 0; i < extra.length; i += 3) stl.tri(extra[i], extra[i + 1], extra[i + 2]);
   for (let a = 0; a < U; a++) {
     for (let b = 0; b < V; b++) {
       const u0 = (a / U) * 2 * Math.PI, u1 = ((a + 1) / U) * 2 * Math.PI;

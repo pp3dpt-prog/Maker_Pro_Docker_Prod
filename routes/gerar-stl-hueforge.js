@@ -125,8 +125,9 @@ export async function gerarStlHueforge(req, res) {
 
     // Hash para cache — inclui ajustes + modo de cor + versão. Subir "v" sempre que
     // mudar a geometria OU o guia TXT (a cache devolve os dois ficheiros antigos).
-    const paramsKey = sha256(JSON.stringify({ v: 7, imagePath, numCores, layerHeight, primeiraCamada,
+    const paramsKey = sha256(JSON.stringify({ v: 8, imagePath, numCores, layerHeight, primeiraCamada,
       esp_min: rest.esp_min, esp_max: rest.esp_max, raio: rest.raio, angulo: rest.angulo, moldura: rest.moldura_mm, diametro: rest.diametro_mm, furo_led: rest.furo_led_mm,
+      fecho: rest.fecho, diametro_vela: rest.diametro_vela,
       lado: rest.lado_mm, luz: rest.luz, img2: rest.image_path_2, img3: rest.image_path_3, img4: rest.image_path_4,
       hole_diameter: rest.hole_diameter, hole_margin_top: rest.hole_margin_top, espBase, altRelevo, larguraMm, alturaMm, contraste, brilho, ajuste, zoom, posX, posY, modoCor, renderMode }));
     const stlFilename = `${produtoId}_hf_${paramsKey}.stl`;
@@ -307,6 +308,7 @@ export async function gerarStlHueforge(req, res) {
     const txtContent = isLito
       ? buildLitofaniaTxt({
           curva: familia === 'litofania-curva', esfera: familia === 'litofania-esfera',
+          geoEsfera: familia === 'litofania-esfera' ? esferaGeometria(rest) : null,
           diametro: Number(rest.diametro_mm ?? 80), furoLed: Number(rest.furo_led_mm ?? 40),
           larguraMm, alturaMm,
           espMin: Number(rest.esp_min ?? 0.6), espMax: Number(rest.esp_max ?? 3.0),

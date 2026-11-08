@@ -2,7 +2,7 @@
  * Guia TXT de impressão para litofânias (plana e curva).
  * ASCII simples (sem acentos) para abrir bem em qualquer editor/slicer.
  */
-export function buildLitofaniaTxt({ cubo = false, geoCubo = null, curva = false, esfera = false, larguraMm, alturaMm, espMin, espMax, moldura = 0, raio, angulo, diametro, furoLed }) {
+export function buildLitofaniaTxt({ cubo = false, geoCubo = null, curva = false, esfera = false, geoEsfera = null, larguraMm, alturaMm, espMin, espMax, moldura = 0, raio, angulo, diametro, furoLed }) {
   const fmt = (v) => Number(v).toFixed(1);
   const sep = '='.repeat(49);
   if (cubo && geoCubo) return guiaCubo(geoCubo, fmt, sep);
@@ -14,8 +14,10 @@ export function buildLitofaniaTxt({ cubo = false, geoCubo = null, curva = false,
   ];
 
   if (esfera) {
-    L.push(`  Diametro        : ${fmt(diametro)} mm`);
-    L.push(`  Furo para LED   : ${fmt(furoLed)} mm (em baixo)`);
+    const tp = geoEsfera?.tampa;
+    L.push(`  Diametro        : ${fmt(geoEsfera ? 2 * geoEsfera.R : diametro)} mm`);
+    if (tp) L.push(`  Tampa           : 1/4 de volta, para vela LED ate ${fmt(tp.Dv)} mm`);
+    else L.push(`  Furo para LED   : ${fmt(geoEsfera ? geoEsfera.furo : furoLed)} mm (em baixo)`);
     L.push(`  Imagem          : ${angulo >= 360 ? 'a toda a volta' : `${angulo} graus a frente`}`);
   } else if (curva) {
     const arco = (Number(raio) * Number(angulo) * Math.PI) / 180;
@@ -39,7 +41,9 @@ export function buildLitofaniaTxt({ cubo = false, geoCubo = null, curva = false,
   L.push('  * Velocidade baixa nas paredes exteriores (~40 mm/s).');
   L.push('  * Ventilacao normal; sem suportes.');
   if (esfera) {
-    L.push('  * Imprime como sai do ficheiro: furo para baixo, argola para cima.');
+    L.push(geoEsfera?.tampa
+      ? '  * Imprime como sai do ficheiro: bola com a gola para baixo e a tampa\r\n    ao lado, com a aba para baixo (sao duas pecas no mesmo STL).'
+      : '  * Imprime como sai do ficheiro: furo para baixo, argola para cima.');
     L.push('    SEM suportes (o topo e o fundo sao grossos para imprimir sem eles).');
     L.push('  * Brim de 5 mm ajuda o anel de baixo a nao descolar.');
     L.push('  * Arrefecimento a 100% nas camadas de cima (fecho do topo).');
@@ -56,8 +60,17 @@ export function buildLitofaniaTxt({ cubo = false, geoCubo = null, curva = false,
   L.push('');
   L.push('  COMO VER:');
   if (esfera) {
-    L.push(`  * Vela LED (tea light) com menos de ${fmt(furoLed)} mm, metida pelo furo de baixo.`);
-    L.push('    Fita ou fio pela argola para pendurar na arvore.');
+    if (geoEsfera?.tampa) {
+      L.push(`  * Vela LED (tea light) de ${fmt(geoEsfera.tampa.Dv)} mm no copo da tampa.`);
+      L.push('  * Fechar: encaixa os 3 patins nas 3 entradas da gola, empurra ate ao');
+      L.push('    fim, roda para a direita (vista de baixo) ate parar e larga - a tampa');
+      L.push('    desce um pouco e fica presa.');
+      L.push('  * Abrir: empurra a tampa para cima, roda para tras e puxa.');
+      L.push('  * O furo no fundo da tampa serve para empurrar a vela e chegar ao botao.');
+    } else {
+      L.push(`  * Vela LED (tea light) com menos de ${fmt(geoEsfera ? geoEsfera.furo : furoLed)} mm, metida pelo furo de baixo.`);
+    }
+    L.push('  * Fita ou fio pela argola para pendurar na arvore.');
   } else if (curva) {
     L.push('  * Luz por DENTRO (LED quente, de preferencia sem aquecer).');
     L.push('    A imagem le-se pelo lado de fora (liso).');
