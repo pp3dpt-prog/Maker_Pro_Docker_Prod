@@ -15,6 +15,7 @@ import { fileURLToPath } from 'url';
 import { dirname }       from 'path';
 import Jimp from 'jimp';
 
+import { caixaLuzGeometria, guiaCaixaLuz } from '../app/litofaniaCaixaLuz.js';
 import { alinharCamadasHueforge, generateHueforgeStl, generateBookmarkStl, generateLithophaneFlatStl, generateLithophaneCurvedStl, generateLithophaneSphereStl } from '../app/hueforge-stl.js';
 import { frameImage, aspectForFamily, targetLongPxForFamily, heightFracBeerLambert, litoFracLuz, esferaGeometria } from '../app/image-proc.js';
 import { gerarStlPro, buildHueforgeTxt } from './gerar-stl-pro.js';
@@ -75,7 +76,7 @@ export async function gerarStlHueforge(req, res) {
 
     // Tipo de gerador (engine ou, nos designs antigos, a família) — ver lib/tipoDesign.js
     const familia = tipoDesign(design);
-    const JS_FAMILIES = ['hueforge', 'marcadores', 'portachaves', 'litofania', 'litofania-curva', 'litofania-esfera', 'litofania-cubo'];
+    const JS_FAMILIES = ['hueforge', 'marcadores', 'portachaves', 'litofania', 'litofania-curva', 'litofania-esfera', 'litofania-cubo', 'litofania-caixa-luz'];
     const isJsMode = JS_FAMILIES.includes(familia);
 
     // Produtos não suportados em JS delegam para gerar-stl-pro (OpenSCAD)
@@ -165,6 +166,12 @@ export async function gerarStlHueforge(req, res) {
       return res.json({ success: true, url, txtUrl, cached: false, mode: renderMode, coresDetectadas: null });
     }
 
+    // Litofânia Caixa de Luz: o painel é uma litofânia plana com as medidas/limites de
+    // caixaLuzGeometria (igual ao download); aqui gera-se só o painel (a base sai no download).
+    const geoCaixa = familia === 'litofania-caixa-luz' ? caixaLuzGeometria(rest) : null;
+    const espMinLito = geoCaixa ? geoCaixa.espMin : (rest.esp_min ?? 0.6);
+    const espMaxLito = geoCaixa ? geoCaixa.espMax : (rest.esp_max ?? 3.0);
+
     // Descarregar e processar imagem
     const uid      = uuid();
     const rawPath  = path.join(TMP_DIR, `hf_raw_${uid}.png`);
@@ -178,7 +185,7 @@ export async function gerarStlHueforge(req, res) {
     const rawImg = await Jimp.read(rawPath);
     const img = await frameImage(rawImg, {
       targetLong: maxPx,
-      aspect: aspectForFamily(familia, rest),
+      aspect: geoCaixa ? aspectForFamily('litofania', { largura_mm: geoCaixa.larguraMm, altura_mm: geoCaixa.alturaMm }) : aspectForFamily(familia, rest),
       fit: ajuste, zoom, posX, posY,
     });
     if (contraste !== 0) img.contrast(contraste);
@@ -250,7 +257,7 @@ export async function gerarStlHueforge(req, res) {
       img.scan(0, 0, w, h, function (x, y, idx) {
         const gray = this.bitmap.data[idx];
         const q    = lito
-            ? Math.round(litoFracLuz(gray, rest.esp_min ?? 0.6, rest.esp_max ?? 3.0) * 255)
+            ? Math.round(litoFracLuz(gray, espMinLito, espMaxLito) * 255)
             : Math.round(heightFracBeerLambert(gray, n) * 255);
         this.bitmap.data[idx] = this.bitmap.data[idx+1] = this.bitmap.data[idx+2] = q;
       });
@@ -288,6 +295,9 @@ export async function gerarStlHueforge(req, res) {
       stlBuffer = generateLithophaneFlatStl({ heightmap, largura: larguraMm, altura: alturaMm,
         espMax: Number(rest.esp_max ?? 3.0), espMin: Number(rest.esp_min ?? 0.6),
         moldura: Number(rest.moldura_mm ?? 3) });
+    } else if (geoCaixa) {
+      stlBuffer = generateLithophaneFlatStl({ heightmap, largura: geoCaixa.larguraMm, altura: geoCaixa.alturaMm,
+        espMax: geoCaixa.espMax, espMin: geoCaixa.espMin, moldura: geoCaixa.molduraMm });
     } else if (familia === 'litofania-curva') {
       stlBuffer = generateLithophaneCurvedStl({ heightmap, alturaMm,
         raio: Number(rest.raio ?? 50), angulo: Number(rest.angulo ?? 270),
@@ -305,7 +315,7 @@ export async function gerarStlHueforge(req, res) {
 
     // Gerar TXT: guia de impressão (litofânias) ou de troca de filamento (HueForge)
     const isLito = familia.startsWith('litofania');
-    const txtContent = isLito
+    const txtContent = geoCaixa ? guiaCaixaLuz(geoCaixa) : isLito
       ? buildLitofaniaTxt({
           curva: familia === 'litofania-curva', esfera: familia === 'litofania-esfera',
           geoEsfera: familia === 'litofania-esfera' ? esferaGeometria(rest) : null,
