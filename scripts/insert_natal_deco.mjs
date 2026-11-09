@@ -65,7 +65,7 @@ modelo('casinha', 'Casinha Lanterna', 'Casinha oca com janelas, porta e chaminé
     janelas: slider('Janelas atrás e em cada lado', 0, 4, 1, 2),
     chamine: check('Chaminé', true),
     parede: slider('Espessura das paredes', 1.2, 4, 0.1, 2, 'mm'),
-    info_casinha: info('🏠 Aberta em baixo: põe-na por cima de uma vela LED. Imprime de pé, sem suportes. Em branco ou bege a luz passa pelas paredes; em cores escuras só se vê pelas janelas. ' + VELA_INFO),
+    info_casinha: info('🏠 Aberta em baixo: põe-na por cima de uma vela LED. Imprime de pé, sem suportes. Em branco ou bege a luz passa pelas paredes; em cores escuras só se vê pelas janelas. Usa só velas LED: com velas a sério o plástico amolece e arde.'),
   }));
 modelo('cena_led', 'Cena de Natal com Luz', 'Moldura em círculo, estrela ou arco com uma cena de Natal em silhueta (renas, pinheiros, presépio, trenó ou casinhas), de pé numa base com uma vela LED por trás.',
   ['cena', 'silhueta', 'presépio', 'renas', 'LED', 'natal', 'moldura'], () => ({
