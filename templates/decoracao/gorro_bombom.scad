@@ -39,13 +39,16 @@ module solido_polar(k, H, N, K, curva = true) {
 }
 
 // ── casca de revolução aberta em baixo (gorro) ──
-// fora: rp(k, a, z), z ∈ [0, H], fechada em cima; dentro: ri(k, z), z ∈ [0, Hi], fechada em cima
-module casca_polar(k, H, Hi, N, K, Ki) {
-    R = K + 1; Ri = Ki + 1;
-    fora = [for (i = [0 : N - 1], j = [0 : K]) let(a = i * 360 / N, z = H * j / K, r = rp(k, a, z)) [cx(k, z) + r * cos(a), r * sin(a), z]];
-    dent = [for (i = [0 : N - 1], j = [0 : Ki]) let(a = i * 360 / N, z = Hi * j / Ki, r = ri(k, z)) [cx(k, z) + r * cos(a), r * sin(a), z]];
-    O = N * R; T = O + N * Ri; Ti = T + 1;
-    pts = concat(fora, dent, [[cx(k, H), 0, H], [cx(k, Hi), 0, Hi]]);
+// fora: rp(k, a, z), z ∈ [0, H], fechada em cima; dentro: ri(k, z), z ∈ [0, Hi], fechada em cima.
+// casca_dados devolve [pontos, faces]; poliedro() junta várias num só polyhedron — corpos
+// separados num só polyhedron não precisam de união (CGAL), por isso gera em 1–2 s.
+function casca_dados(k, H, Hi, N, K, Ki, inverter = false) = let(
+    R = K + 1, Ri = Ki + 1,
+    zf = function(z) inverter ? H - z : z,
+    fora = [for (i = [0 : N - 1], j = [0 : K]) let(a = i * 360 / N, z = H * j / K, r = rp(k, a, z)) [cx(k, z) + r * cos(a), r * sin(a), zf(z)]],
+    dent = [for (i = [0 : N - 1], j = [0 : Ki]) let(a = i * 360 / N, z = Hi * j / Ki, r = ri(k, z)) [cx(k, z) + r * cos(a), r * sin(a), zf(z)]],
+    O = N * R, T = O + N * Ri, Ti = T + 1,
+    pts = concat(fora, dent, [[cx(k, H), 0, zf(H)], [cx(k, Hi), 0, zf(Hi)]]),
     faces = concat(
         [for (i = [0 : N - 1], j = [0 : K - 1], f = [[i * R + j, (i + 1) % N * R + j + 1, (i + 1) % N * R + j],
                                                     [i * R + j, i * R + j + 1, (i + 1) % N * R + j + 1]]) f],
@@ -53,8 +56,16 @@ module casca_polar(k, H, Hi, N, K, Ki) {
                                                      [O + i * Ri + j, O + (i + 1) % N * Ri + j + 1, O + i * Ri + j + 1]]) f],
         [for (i = [0 : N - 1]) [T, (i + 1) % N * R + K, i * R + K]],
         [for (i = [0 : N - 1]) [Ti, O + i * Ri + Ki, O + (i + 1) % N * Ri + Ki]],
-        [for (i = [0 : N - 1], f = [[i * R, (i + 1) % N * R, O + (i + 1) % N * Ri], [i * R, O + (i + 1) % N * Ri, O + i * Ri]]) f]);
-    polyhedron(points = pts, faces = faces, convexity = 6);
+        [for (i = [0 : N - 1], f = [[i * R, (i + 1) % N * R, O + (i + 1) % N * Ri], [i * R, O + (i + 1) % N * Ri, O + i * Ri]]) f])
+) [pts, inverter ? [for (f = faces) [f[0], f[2], f[1]]] : faces];
+module casca_polar(k, H, Hi, N, K, Ki) { d = casca_dados(k, H, Hi, N, K, Ki); polyhedron(points = d[0], faces = d[1], convexity = 6); }
+// junta [pontos, faces] de vários corpos num só polyhedron (desloca[i] = [dx, dy, dz] de cada um)
+function _somas(L, i) = i <= 0 ? 0 : _somas(L, i - 1) + len(L[i - 1][0]);
+module poliedro(L, desloca) {
+    polyhedron(
+        points = [for (i = [0 : len(L) - 1], p = L[i][0]) p + desloca[i]],
+        faces = [for (i = [0 : len(L) - 1], f = L[i][1]) [for (v = f) v + _somas(L, i)]],
+        convexity = 8);
 }
 
 // ── base com ranhura e cavidades para velas LED ──
@@ -105,40 +116,37 @@ function _hb() = max(6, 0.24 * _Hg());          // altura da dobra
 function _rpp() = _pp() ? max(4, 0.13 * _Hg() + 0.08 * _d()) : 0;   // raio do pompom
 function _rt() = _pp() ? 0.65 * _rpp() : 2;     // raio do topo do cone
 function _Hc() = _Hg() - (_pp() ? 0.2 * _rpp() : 0);   // altura do cone
+function _zp() = _Hc() + 0.2 * _rpp();          // centro do pompom
+function _Ht() = _pp() ? _zp() + _rpp() : _Hc(); // altura total do gorro
 // copo (base): raio por fora e altura
 function _Rcp() = 0.8 * _rd() + 3;
 function _hcp() = max(8, 0.34 * _d());
 function cone(z) = let(r0 = 0.88 * _Rb()) z <= _hb() ? _Rb() : r0 + (_rt() - r0) * (z - _hb()) / (_Hc() - _hb());
 // ponta do gorro caída para o lado (+x); inclinação do eixo ≤ 30°, para imprimir sem suportes
-function cx(k, z) = k == 0 && z > _hb() ? 0.2 * _Hg() * pow((z - _hb()) / (_Hc() - _hb()), 2) : 0;
+function cx(k, z) = k == 0 && z > _hb() ? 0.2 * _Hg() * pow((min(z, _Hc()) - _hb()) / (_Hc() - _hb()), 2) : 0;
 // k = 0: gorro; k = 1: copo
+// o pompom faz parte do perfil do gorro (o maior dos dois raios): o gorro é um só corpo
+function pompom(z) = _pp() && abs(z - _zp()) < _rpp() ? sqrt(_rpp() * _rpp() - pow(z - _zp(), 2)) : 0;
 function rp(k, a, z) = k == 0
-    ? (z <= _hb() ? _Rb() - 1.1 * (0.5 + 0.5 * cos(_ne() * a)) * _cl(min(z, _hb() - z) / 0.6, 0, 1) : cone(z))
+    ? (z <= _hb() ? _Rb() - 1.1 * (0.5 + 0.5 * cos(_ne() * a)) * _cl(min(z, _hb() - z) / 0.6, 0, 1)
+                  : max(z <= _Hc() ? cone(z) : 0, pompom(z), 0.05))
     : _Rcp() - 1 * (0.5 + 0.5 * cos(_ne() * a)) * _cl(min(z, _hcp() - z) / 0.6, 0, 1);
 // dentro do gorro: assenta no bombom a 0,86·raio; cone paralelo ao de fora
 function ri(k, z) = k == 0 ? max(0.4, min(0.86 * _rd() + 0.0001 * z, cone(z) - PAREDE_G))
                            : 0.8 * _rd();
 function _Hi() = _Hc() - 2.2;
 
-module gorro() {
-    N = max(96, 6 * _ne());
-    casca_polar(0, _Hc(), _Hi(), N, 60, 40);
-    if (_pp()) translate([cx(0, _Hc()), 0, _Hc() + 0.2 * _rpp()]) sphere(r = _rpp(), $fn = 40);
-}
-module copo() {
-    N = max(96, 6 * _ne());
-    // é um "gorro" virado ao contrário: a cavidade abre em cima
-    translate([0, 0, _hcp()]) mirror([0, 0, 1]) casca_polar(1, _hcp(), _hcp() - 2, N, 8, 4);
-}
+function _N() = max(96, 6 * _ne());
+function gorro_dados() = casca_dados(0, _Ht(), _Hi(), _N(), 90, 40);
+function copo_dados() = casca_dados(1, _hcp(), _hcp() - 2, _N(), 8, 4, true);   // virado: abre em cima
 // posições montadas (só para a pré-visualização): centro do bombom e altura do gorro
 function _zbombom() = _hcp() + sqrt(_rd() * _rd() - pow(0.8 * _rd(), 2));
 function _zgorro() = _zbombom() + sqrt(_rd() * _rd() - pow(0.86 * _rd(), 2));
 
 module gorro_bombom() {
     p = _pecas();
-    so_g = p == "Só o gorro";
-    so_b = p == "Só a base";
-    if (!so_b) gorro();
-    if (!so_g) translate([so_b ? 0 : -(_Rb() + _Rcp() + 6), 0, 0]) copo();
+    if (p == "Só o gorro") poliedro([gorro_dados()], [[0, 0, 0]]);
+    else if (p == "Só a base") poliedro([copo_dados()], [[0, 0, 0]]);
+    else poliedro([gorro_dados(), copo_dados()], [[0, 0, 0], [-(_Rb() + _Rcp() + 6), 0, 0]]);
 }
 gorro_bombom();

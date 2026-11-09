@@ -16,40 +16,37 @@ function _hb() = max(6, 0.24 * _Hg());          // altura da dobra
 function _rpp() = _pp() ? max(4, 0.13 * _Hg() + 0.08 * _d()) : 0;   // raio do pompom
 function _rt() = _pp() ? 0.65 * _rpp() : 2;     // raio do topo do cone
 function _Hc() = _Hg() - (_pp() ? 0.2 * _rpp() : 0);   // altura do cone
+function _zp() = _Hc() + 0.2 * _rpp();          // centro do pompom
+function _Ht() = _pp() ? _zp() + _rpp() : _Hc(); // altura total do gorro
 // copo (base): raio por fora e altura
 function _Rcp() = 0.8 * _rd() + 3;
 function _hcp() = max(8, 0.34 * _d());
 function cone(z) = let(r0 = 0.88 * _Rb()) z <= _hb() ? _Rb() : r0 + (_rt() - r0) * (z - _hb()) / (_Hc() - _hb());
 // ponta do gorro caída para o lado (+x); inclinação do eixo ≤ 30°, para imprimir sem suportes
-function cx(k, z) = k == 0 && z > _hb() ? 0.2 * _Hg() * pow((z - _hb()) / (_Hc() - _hb()), 2) : 0;
+function cx(k, z) = k == 0 && z > _hb() ? 0.2 * _Hg() * pow((min(z, _Hc()) - _hb()) / (_Hc() - _hb()), 2) : 0;
 // k = 0: gorro; k = 1: copo
+// o pompom faz parte do perfil do gorro (o maior dos dois raios): o gorro é um só corpo
+function pompom(z) = _pp() && abs(z - _zp()) < _rpp() ? sqrt(_rpp() * _rpp() - pow(z - _zp(), 2)) : 0;
 function rp(k, a, z) = k == 0
-    ? (z <= _hb() ? _Rb() - 1.1 * (0.5 + 0.5 * cos(_ne() * a)) * _cl(min(z, _hb() - z) / 0.6, 0, 1) : cone(z))
+    ? (z <= _hb() ? _Rb() - 1.1 * (0.5 + 0.5 * cos(_ne() * a)) * _cl(min(z, _hb() - z) / 0.6, 0, 1)
+                  : max(z <= _Hc() ? cone(z) : 0, pompom(z), 0.05))
     : _Rcp() - 1 * (0.5 + 0.5 * cos(_ne() * a)) * _cl(min(z, _hcp() - z) / 0.6, 0, 1);
 // dentro do gorro: assenta no bombom a 0,86·raio; cone paralelo ao de fora
 function ri(k, z) = k == 0 ? max(0.4, min(0.86 * _rd() + 0.0001 * z, cone(z) - PAREDE_G))
                            : 0.8 * _rd();
 function _Hi() = _Hc() - 2.2;
 
-module gorro() {
-    N = max(96, 6 * _ne());
-    casca_polar(0, _Hc(), _Hi(), N, 60, 40);
-    if (_pp()) translate([cx(0, _Hc()), 0, _Hc() + 0.2 * _rpp()]) sphere(r = _rpp(), $fn = 40);
-}
-module copo() {
-    N = max(96, 6 * _ne());
-    // é um "gorro" virado ao contrário: a cavidade abre em cima
-    translate([0, 0, _hcp()]) mirror([0, 0, 1]) casca_polar(1, _hcp(), _hcp() - 2, N, 8, 4);
-}
+function _N() = max(96, 6 * _ne());
+function gorro_dados() = casca_dados(0, _Ht(), _Hi(), _N(), 90, 40);
+function copo_dados() = casca_dados(1, _hcp(), _hcp() - 2, _N(), 8, 4, true);   // virado: abre em cima
 // posições montadas (só para a pré-visualização): centro do bombom e altura do gorro
 function _zbombom() = _hcp() + sqrt(_rd() * _rd() - pow(0.8 * _rd(), 2));
 function _zgorro() = _zbombom() + sqrt(_rd() * _rd() - pow(0.86 * _rd(), 2));
 
 module gorro_bombom() {
     p = _pecas();
-    so_g = p == "Só o gorro";
-    so_b = p == "Só a base";
-    if (!so_b) gorro();
-    if (!so_g) translate([so_b ? 0 : -(_Rb() + _Rcp() + 6), 0, 0]) copo();
+    if (p == "Só o gorro") poliedro([gorro_dados()], [[0, 0, 0]]);
+    else if (p == "Só a base") poliedro([copo_dados()], [[0, 0, 0]]);
+    else poliedro([gorro_dados(), copo_dados()], [[0, 0, 0], [-(_Rb() + _Rcp() + 6), 0, 0]]);
 }
 gorro_bombom();

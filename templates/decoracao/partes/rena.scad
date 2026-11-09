@@ -23,15 +23,14 @@ function _zcup(f) = _zc() + _hh() * sqrt(1 - f * f);
 
 module haste() {
     s = 1.25 * _hs() * _R() / 30;
-    translate([0.4 * _rh(), 0, _zcup(0.4) - 2 * s]) rotate([0, -6, 0]) placa_xz(3.6 * max(1, s * 0.8)) scale(s) forma2d(NATAL_HASTE);
+    translate([0.34 * _rh(), 0, _zcup(0.4) - 2 * s]) rotate([0, -6, 0]) placa_xz(3.6 * max(1, s * 0.8)) scale(s) forma2d(NATAL_HASTE);
 }
 module orelha() {
     s = 1.3 * _R() / 30;
-    translate([0.8 * _rh(), 0, _zcup(0.8)]) placa_xz(2.6) rotate(32) scale(s) forma2d(NATAL_ORELHA);
+    translate([0.7 * _rh(), 0, _zcup(0.8)]) placa_xz(2.6) rotate(32) scale(s) forma2d(NATAL_ORELHA);   // raiz por dentro da cabeça (as estrias cavam até 4 mm)
 }
 module rena() {
-    N = max(96, 8 * _ne());
-    solido_polar(0, _H(), N, 90);
+    solido_polar(0, _H(), max(96, 6 * _ne()), 70);
     for (m = [0, 1]) mirror([m, 0, 0]) {
         haste();
         if (_sim(is_undef(orelhas) ? true : orelhas)) orelha();

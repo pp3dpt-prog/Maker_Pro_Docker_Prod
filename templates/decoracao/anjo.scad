@@ -39,13 +39,16 @@ module solido_polar(k, H, N, K, curva = true) {
 }
 
 // ── casca de revolução aberta em baixo (gorro) ──
-// fora: rp(k, a, z), z ∈ [0, H], fechada em cima; dentro: ri(k, z), z ∈ [0, Hi], fechada em cima
-module casca_polar(k, H, Hi, N, K, Ki) {
-    R = K + 1; Ri = Ki + 1;
-    fora = [for (i = [0 : N - 1], j = [0 : K]) let(a = i * 360 / N, z = H * j / K, r = rp(k, a, z)) [cx(k, z) + r * cos(a), r * sin(a), z]];
-    dent = [for (i = [0 : N - 1], j = [0 : Ki]) let(a = i * 360 / N, z = Hi * j / Ki, r = ri(k, z)) [cx(k, z) + r * cos(a), r * sin(a), z]];
-    O = N * R; T = O + N * Ri; Ti = T + 1;
-    pts = concat(fora, dent, [[cx(k, H), 0, H], [cx(k, Hi), 0, Hi]]);
+// fora: rp(k, a, z), z ∈ [0, H], fechada em cima; dentro: ri(k, z), z ∈ [0, Hi], fechada em cima.
+// casca_dados devolve [pontos, faces]; poliedro() junta várias num só polyhedron — corpos
+// separados num só polyhedron não precisam de união (CGAL), por isso gera em 1–2 s.
+function casca_dados(k, H, Hi, N, K, Ki, inverter = false) = let(
+    R = K + 1, Ri = Ki + 1,
+    zf = function(z) inverter ? H - z : z,
+    fora = [for (i = [0 : N - 1], j = [0 : K]) let(a = i * 360 / N, z = H * j / K, r = rp(k, a, z)) [cx(k, z) + r * cos(a), r * sin(a), zf(z)]],
+    dent = [for (i = [0 : N - 1], j = [0 : Ki]) let(a = i * 360 / N, z = Hi * j / Ki, r = ri(k, z)) [cx(k, z) + r * cos(a), r * sin(a), zf(z)]],
+    O = N * R, T = O + N * Ri, Ti = T + 1,
+    pts = concat(fora, dent, [[cx(k, H), 0, zf(H)], [cx(k, Hi), 0, zf(Hi)]]),
     faces = concat(
         [for (i = [0 : N - 1], j = [0 : K - 1], f = [[i * R + j, (i + 1) % N * R + j + 1, (i + 1) % N * R + j],
                                                     [i * R + j, i * R + j + 1, (i + 1) % N * R + j + 1]]) f],
@@ -53,8 +56,16 @@ module casca_polar(k, H, Hi, N, K, Ki) {
                                                      [O + i * Ri + j, O + (i + 1) % N * Ri + j + 1, O + i * Ri + j + 1]]) f],
         [for (i = [0 : N - 1]) [T, (i + 1) % N * R + K, i * R + K]],
         [for (i = [0 : N - 1]) [Ti, O + i * Ri + Ki, O + (i + 1) % N * Ri + Ki]],
-        [for (i = [0 : N - 1], f = [[i * R, (i + 1) % N * R, O + (i + 1) % N * Ri], [i * R, O + (i + 1) % N * Ri, O + i * Ri]]) f]);
-    polyhedron(points = pts, faces = faces, convexity = 6);
+        [for (i = [0 : N - 1], f = [[i * R, (i + 1) % N * R, O + (i + 1) % N * Ri], [i * R, O + (i + 1) % N * Ri, O + i * Ri]]) f])
+) [pts, inverter ? [for (f = faces) [f[0], f[2], f[1]]] : faces];
+module casca_polar(k, H, Hi, N, K, Ki) { d = casca_dados(k, H, Hi, N, K, Ki); polyhedron(points = d[0], faces = d[1], convexity = 6); }
+// junta [pontos, faces] de vários corpos num só polyhedron (desloca[i] = [dx, dy, dz] de cada um)
+function _somas(L, i) = i <= 0 ? 0 : _somas(L, i - 1) + len(L[i - 1][0]);
+module poliedro(L, desloca) {
+    polyhedron(
+        points = [for (i = [0 : len(L) - 1], p = L[i][0]) p + desloca[i]],
+        faces = [for (i = [0 : len(L) - 1], f = L[i][1]) [for (v = f) v + _somas(L, i)]],
+        convexity = 8);
 }
 
 // ── base com ranhura e cavidades para velas LED ──
@@ -103,8 +114,11 @@ function _rn() = 0.7 * _rc();                               // raio do pescoço
 function _zh() = _Hb() + 0.85 * _rc();                      // centro da cabeça
 function saia(z) = let(u = z / _Hb()) _rn() + (_R() - _rn()) * pow(1 - u, 1.35) + 0.05 * _R() * pow(1 - u, 8);
 function cx(k, z) = 0;
-function rp(k, a, z) = let(b = saia(z), f = _cl((_Hb() - z) / (0.18 * _Hb()), 0, 1))
-    max(0.05, b - _re() * (0.5 + 0.5 * cos(_ne() * a)) * f);
+function cabeca(z) = let(t = z - _zh()) abs(t) < _rc() ? sqrt(_rc() * _rc() - t * t) : 0;
+function _Ht() = _zh() + _rc();
+// saia (com estrias) e cabeça num só perfil (o maior dos dois): um corpo só, menos trabalho ao CGAL
+function rp(k, a, z) = let(f = _cl((_Hb() - z) / (0.18 * _Hb()), 0, 1))
+    max(0.05, z <= _Hb() ? saia(z) - _re() * (0.5 + 0.5 * cos(_ne() * a)) * f : 0, cabeca(z));
 
 module asa() {
     s = 1.6 * _as() * _R() / 30;
@@ -117,10 +131,8 @@ module aureola() {
         difference() { circle(r = 1.12 * rc, $fn = 72); circle(r = 0.9 * rc, $fn = 72); }
 }
 module anjo() {
-    N = max(96, 8 * _ne());
-    // a saia acaba plana no pescoço (z = Hb), tapada pela cabeça
-    solido_polar(0, _Hb(), N, 70, false);
-    translate([0, 0, _zh()]) sphere(r = _rc(), $fn = 64);
+    // saia e cabeça num só corpo de revolução (ver rp)
+    solido_polar(0, _Ht(), max(96, 6 * _ne()), 100, false);
     for (m = [0, 1]) mirror([m, 0, 0]) asa();
     if (_sim(is_undef(aureola) ? true : aureola)) aureola();
 }

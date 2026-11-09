@@ -14,8 +14,11 @@ function _rn() = 0.7 * _rc();                               // raio do pescoço
 function _zh() = _Hb() + 0.85 * _rc();                      // centro da cabeça
 function saia(z) = let(u = z / _Hb()) _rn() + (_R() - _rn()) * pow(1 - u, 1.35) + 0.05 * _R() * pow(1 - u, 8);
 function cx(k, z) = 0;
-function rp(k, a, z) = let(b = saia(z), f = _cl((_Hb() - z) / (0.18 * _Hb()), 0, 1))
-    max(0.05, b - _re() * (0.5 + 0.5 * cos(_ne() * a)) * f);
+function cabeca(z) = let(t = z - _zh()) abs(t) < _rc() ? sqrt(_rc() * _rc() - t * t) : 0;
+function _Ht() = _zh() + _rc();
+// saia (com estrias) e cabeça num só perfil (o maior dos dois): um corpo só, menos trabalho ao CGAL
+function rp(k, a, z) = let(f = _cl((_Hb() - z) / (0.18 * _Hb()), 0, 1))
+    max(0.05, z <= _Hb() ? saia(z) - _re() * (0.5 + 0.5 * cos(_ne() * a)) * f : 0, cabeca(z));
 
 module asa() {
     s = 1.6 * _as() * _R() / 30;
@@ -28,10 +31,8 @@ module aureola() {
         difference() { circle(r = 1.12 * rc, $fn = 72); circle(r = 0.9 * rc, $fn = 72); }
 }
 module anjo() {
-    N = max(96, 8 * _ne());
-    // a saia acaba plana no pescoço (z = Hb), tapada pela cabeça
-    solido_polar(0, _Hb(), N, 70, false);
-    translate([0, 0, _zh()]) sphere(r = _rc(), $fn = 64);
+    // saia e cabeça num só corpo de revolução (ver rp)
+    solido_polar(0, _Ht(), max(96, 6 * _ne()), 100, false);
     for (m = [0, 1]) mirror([m, 0, 0]) asa();
     if (_sim(is_undef(aureola) ? true : aureola)) aureola();
 }
