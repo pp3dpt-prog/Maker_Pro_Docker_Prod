@@ -368,11 +368,14 @@ export function generateLithophaneSphereStl({ heightmap, geo, espMax, espMin }) 
   const capT = Math.max(espMax, 3);
   const deg = Math.PI / 180;
 
-  // Grelha: longitude com o passo da imagem; latitude do corte até junto ao polo
-  const dPhiImg = (phi2 - phi1) / Math.max(1, rows - 1);
-  // com tampa a gola precisa de ranhuras vivas → longitudes fixas (720, meio grau)
-  const NL = tampa ? 720 : Math.min(900, Math.max(48, completo ? cols : Math.round(cols * 2 * Math.PI / A)));
-  const nLat = Math.max(8, Math.ceil((Math.PI / 2 - phiCut) / dPhiImg));
+  // Grelha com passo uniforme na superfície (a imagem é amostrada por interpolação): ~0.35–0.6 mm,
+  // o que a impressora consegue fazer. Antes seguia a resolução da imagem (até 900 colunas) e o STL
+  // passava dos 50 MB que o Supabase aceita. Orçamento: ~600 mil triângulos na casca (~30 MB).
+  const lPhi = (Math.PI / 2 - phiCut) * R, circ = 2 * Math.PI * R;
+  const passo = Math.max(0.35, Math.sqrt((4 * lPhi * circ) / 600000));
+  // com tampa a gola usa as mesmas longitudes: no mínimo 480 (0.75°) para as ranhuras saírem vivas
+  const NL = Math.min(900, Math.max(tampa ? 480 : 48, Math.round(circ / passo / 8) * 8));
+  const nLat = Math.max(8, Math.ceil(lPhi / passo));
   const phis = Array.from({ length: nLat }, (_, i) => phiCut + i * (Math.PI / 2 - phiCut) / nLat);
   const lams = Array.from({ length: NL }, (_, j) => -Math.PI + j * 2 * Math.PI / NL);
 
@@ -435,7 +438,7 @@ export function generateLithophaneSphereStl({ heightmap, geo, espMax, espMin }) 
   if (tampa) {
     const emit = (a, b, c) => extra.push(a, b, c);
     golaTriangulos(tampa, lams, (j) => outer[0][j], emit);
-    tampaTriangulos(tampa, emit, { x0: R + tampa.rf + 8 });
+    tampaTriangulos(tampa, emit, { x0: R + tampa.rf + 8, NC: 360 });
   }
   const nTri = 2 * (2 * (nLat - 1) * NL + NL) + (tampa ? 0 : 2 * NL) + 2 * U * V + extra.length / 3;
   const stl = new EscritorStl(nTri);
