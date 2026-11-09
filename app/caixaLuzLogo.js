@@ -143,16 +143,18 @@ export function corpoGeometria(p) {
   };
 }
 
-const COLARINHO_ALTURA = 1.2; // mm — rebordo em cada ponta aberta do corpo, para a frente/tampa encaixarem antes de colar
-const COLARINHO_FOLGA = 0.25; // mm — folga do colarinho para a frente/tampa (mesmo contorno de `fronteira`) entrarem justas
+// Encaixe da frente e da tampa: rebaixo (como numa moldura de quadro). Em cada ponta aberta do
+// corpo a parede fica só com um aro exterior fino (ARO mm) e a frente/tampa entra lá dentro e
+// assenta no degrau que sobra da parede. A frente/tampa têm o contorno recuado ARO + FOLGA.
+export const ARO_MM = 1.2;          // espessura do aro à volta da frente/tampa
+export const FOLGA_ENCAIXE = 0.2;   // folga por lado (encaixe justo; cola opcional)
+export const aroDe = (paredeMm) => Math.min(ARO_MM, paredeMm - 0.8);   // deixa ≥ 0.8 mm de degrau
 
 /**
- * Paredes ocas à volta de `fronteira`. Abertas nos dois topos (z=0 e
- * z=profundidade): a frente cola-se no rebordo de cima, a tampa (se
- * pedida) no de baixo. Cada ponta tem um pequeno colarinho (rebordo
- * ligeiramente mais largo que a parede normal) onde a frente/tampa
- * encaixa por dentro antes de colar — autocentra a peça e dá mais área
- * de cola, em vez de uma junta plana sem guia nenhuma.
+ * Paredes ocas à volta de `fronteira`, abertas nos dois topos. Em cima há um rebaixo com a
+ * espessura da frente (geo.espFrenteMm) e, se houver tampa, em baixo outro com a espessura da
+ * tampa: nessas alturas a parede é só o aro exterior, e a frente/tampa (contorno recuado
+ * aro + folga) encaixa lá dentro, centrada, e assenta no degrau. A frente fica à face do aro.
  *
  * Sem tampa, a fita de LED e o cabo entram livremente pelo fundo aberto.
  * Com `montagem: 'parede'`, abre-se também um furo lateral na parede
@@ -166,15 +168,15 @@ export function corpoFatias(fronteira, geo) {
   if (!anel.length) throw Object.assign(new Error('A forma ficou vazia depois de abrir a parede — reduz a espessura da parede ou aumenta a moldura.'), { status: 400 });
 
   const h = geo.profundidadeMm;
-  const temColarinho = h > 2 * COLARINHO_ALTURA + 4;
+  const aro = diferenca(fronteira, offset(fronteira, -aroDe(geo.paredeMm)));
+  const recCima = geo.espFrenteMm || 0;
+  const recBaixo = geo.temTampa ? geo.espessuraTampaMm : 0;
   let fatias;
-  if (temColarinho) {
-    const anelColarinho = diferenca(offset(fronteira, COLARINHO_FOLGA), inner);
-    fatias = [
-      { z0: 0, z1: COLARINHO_ALTURA, regiao: anelColarinho },
-      { z0: COLARINHO_ALTURA, z1: h - COLARINHO_ALTURA, regiao: anel },
-      { z0: h - COLARINHO_ALTURA, z1: h, regiao: anelColarinho },
-    ];
+  if (aro.length && h > recCima + recBaixo + 4) {
+    fatias = [];
+    if (recBaixo > 0) fatias.push({ z0: 0, z1: recBaixo, regiao: aro });
+    fatias.push({ z0: recBaixo, z1: h - recCima, regiao: anel });
+    if (recCima > 0) fatias.push({ z0: h - recCima, z1: h, regiao: aro });
   } else {
     fatias = [{ z0: 0, z1: h, regiao: anel }];
   }
@@ -190,6 +192,11 @@ export function corpoFatias(fronteira, geo) {
   return fatias;
 }
 
+/** Contorno da frente/tampa que encaixa no rebaixo do corpo. */
+export function contornoEncaixe(fronteira, geo) {
+  return offset(fronteira, -(aroDe(geo.paredeMm) + FOLGA_ENCAIXE));
+}
+
 /**
  * Tampa opcional: painel liso igual à frente, fecha o fundo do corpo.
  * Com `montagem: 'parede'` sai sólida (sem furo) — o cabo sai pelo furo
@@ -201,6 +208,7 @@ export function corpoFatias(fronteira, geo) {
  */
 export function tampaFatias(fronteira, geo) {
   const furoD = 8;
+  fronteira = contornoEncaixe(fronteira, geo);   // entra no rebaixo de baixo do corpo
   let regiao = fronteira;
   if (geo.montagem === 'pe') {
     const zonaSegura = offset(fronteira, -(furoD / 2 + 3));
@@ -255,6 +263,19 @@ export function construirCaixaLuzLogo(vetor, params) {
     })();
     r.largura = maxX - minX;
     r.altura = maxY - minY;
+  }
+
+  // Frente e peças de cor recortadas pelo contorno do encaixe (entram no rebaixo de cima do
+  // corpo, à face do aro). A frente propriamente dita é a 1.ª peça; as cores ficam por cima.
+  geo.espFrenteMm = r.parametros.espessura_base;
+  geo.zFrente = geo.profundidadeMm - geo.espFrenteMm;   // onde assenta a frente (pré-visualização)
+  const encaixe = contornoEncaixe(fronteira, geo);
+  if (!encaixe.length) throw Object.assign(new Error('A forma é demasiado fina para o encaixe da frente — aumenta a largura ou o contorno.'), { status: 400 });
+  r.pecas = r.pecas.map(pc => ({ ...pc, fatias: pc.fatias
+    .map(f => ({ ...f, regiao: executar(C.ClipType.ctIntersection, f.regiao, encaixe) }))
+    .filter(f => f.regiao.length) }));
+  if (formaTipo === 'imagem' && Number(r.parametros.contorno) < aroDe(geo.paredeMm) + FOLGA_ENCAIXE + 0.5) {
+    r.avisos.push(`O contorno (${Number(r.parametros.contorno).toFixed(1)} mm) é estreito para o encaixe da frente: o desenho junto à borda fica escondido pelo aro do corpo. Aumenta o contorno para ${(aroDe(geo.paredeMm) + FOLGA_ENCAIXE + 0.5).toFixed(1)} mm ou mais.`);
   }
 
   const corpoTris = fatiasParaTriangulos(corpoFatias(fronteira, geo));
@@ -313,8 +334,10 @@ export function guiaCaixaLuzLogo(r, geo, formaTipo) {
     L.push('  * Cola a fita de LED por dentro das paredes do corpo, à volta,');
     L.push('    perto do fundo aberto — fita virada para dentro/para a frente.');
   }
-  if (geo.temTampa) L.push('  * Encaixa a tampa no colarinho do fundo do corpo e cola.');
-  L.push('  * Encaixa a frente (painel fino) no colarinho de cima do corpo e cola.');
+  if (geo.temTampa) L.push('  * Encaixa a tampa no rebaixo do fundo do corpo (entra justa; um ponto de cola chega).');
+  L.push('  * Encaixa a frente (painel fino) no rebaixo de cima do corpo: fica a face do aro.');
+  L.push(`    Folga do encaixe: ${fmt(FOLGA_ENCAIXE)} mm por lado. Se entrar apertada, lixa a borda;`);
+  L.push('    se ficar solta, um ponto de cola no degrau.');
   L.push('  * Cola as peças de cor por cima da frente, nos encaixes.');
   if (r.avisos.length) L.push('', '  AVISOS:', ...r.avisos.map(a => `  ! ${a}`));
   L.push('', '  NOTA: peca nova — confirma o encaixe frente/corpo e a difusão da', '  luz antes de produzir em serie.', '', sep);
