@@ -134,6 +134,30 @@ async function uploadToStorage(filePath, storagePath, mimeType) {
  * Sem AMS: um STL único (modo = "tudo") + LEIA-ME com a camada da troca de cor.
  * Partes vazias (p.ex. sem texto) não geram ficheiro e são saltadas; a 1.ª é obrigatória.
  */
+/**
+ * Ficheiros separados (generation_schema.ficheiros ou multicor.ficheiros_extra): o template corre
+ * uma vez por ficheiro, com os parâmetros do cliente + os do ficheiro, p.ex.
+ *   "ficheiros": [ { "nome": "suporte.stl", "params": { "peca": "Suporte" } },
+ *                  { "nome": "parafusos.stl", "params": { "peca": "Parafusos" } } ]
+ * Ficheiros vazios são saltados (menos o 1.º). Vários ficheiros → ZIP (mais abaixo).
+ */
+export async function gerarFicheirosSeparados({ design, params, base, lista }) {
+  const out = [];
+  for (const [i, f] of lista.entries()) {
+    const nome = String(f.nome || `parte_${i + 1}.stl`).replace(/[^\w.-]+/g, '_');
+    const stlPath = `${base}_f${i}.stl`;
+    try {
+      await gerarSTL({ scadTemplate: design.scad_template, params: { ...params, ...(f.params || {}) }, outFile: stlPath });
+    } catch (e) {
+      if (i === 0) throw e;
+      console.log(`Ficheiros: "${nome}" vazio, saltado`);
+      continue;
+    }
+    out.push({ name: nome, path: stlPath });
+  }
+  return out;
+}
+
 export function semAms(cfg, params) {
   const v = String(params?.[cfg.param_impressao || 'impressao'] ?? '');
   return /^sem/i.test(v.trim());
@@ -193,7 +217,11 @@ export async function gerarMulticor({ design, params, base, nomeBase }) {
   }
   const p3mf = `${base}.3mf`;
   await fsp.writeFile(p3mf, await tresMf(partes, nomeBase));
-  return [{ name: `${nomeBase}.3mf`, path: p3mf }];
+  // multicor.ficheiros_extra: peças de uma só cor noutro ficheiro (p.ex. os parafusos do suporte)
+  const extra = Array.isArray(cfg.ficheiros_extra) && cfg.ficheiros_extra.length
+    ? await gerarFicheirosSeparados({ design, params, base: `${base}_extra`, lista: cfg.ficheiros_extra })
+    : [];
+  return [{ name: `${nomeBase}.3mf`, path: p3mf }, ...extra];
 }
 
 function cleanupFiles(files) {
@@ -723,6 +751,9 @@ export async function downloadStl(req, res) {
         });
         files.push({ name: 'tampa_traseira.stl', path: trasPath });
       }
+    } else if (Array.isArray(design.generation_schema?.ficheiros) && design.generation_schema.ficheiros.length && design.scad_template) {
+      // Várias peças em ficheiros separados (p.ex. suporte + parafusos) → ZIP
+      files.push(...await gerarFicheirosSeparados({ design, params: paramsNormalizados, base, lista: design.generation_schema.ficheiros }));
     } else {
       // Pet-tags e outros — gera diretamente sem modo
       const stlPath = `${base}.stl`;
