@@ -148,6 +148,9 @@ function pinheiro(cx, h, w = h * 0.62) {
 const CHAO = (x0, x1) => rect(x0, -3, x1, 0.6);
 
 const CENAS = {};
+// Renas, Presépio e Trenó: desenhados com curvas em scripts/natal_cenas/ (as versões antigas, com
+// elipses e traços, ficam abaixo mas são substituídas no fim)
+import { CENAS as CENAS_CURVAS } from './natal_cenas/cenas.mjs';
 
 CENAS['Renas'] = (() => {
   const r = renaPerfil();
@@ -237,6 +240,8 @@ const ARVORE_ZONAS = ARVORE_RAMOS.map(({ hw, yb, alt, ht }, i) => {
   const meia = hw - ((hw - ht) * (cy + tam * 0.55 - yb)) / alt;
   return [0, cy, Math.round((2 * meia - 8) * 10) / 10, tam];
 });
+
+for (const [nome, cams] of Object.entries(CENAS_CURVAS)) CENAS[nome] = cams;
 
 // ── normalizar e exportar ──────────────────────────────────────────────────
 function simplificar(pts, tol, fechado) {
