@@ -5,7 +5,15 @@
 // (frente, trás, lados, águas do telhado), impressa de pé, sem suportes: o telhado a ≥ 40°,
 // as janelas e a porta são pontes curtas.
 // Parâmetros: largura, profundidade, altura (das paredes), inclinacao (do telhado, graus),
-//   janelas (por lado), chamine, parede (espessura)
+//   janelas (por lado), chamine, parede (espessura), modo
+// O telhado pode sair à parte (generation_schema.multicor): tem por baixo uma placa encostada
+// por dentro de cada empena (os encaixes) que o põe no sítio certo — prende-o à frente/atrás e
+// aos lados. As placas descem até à altura da ponta do beiral, por isso o telhado imprime-se de
+// pé, sem suportes, assente no beiral e nas placas.
+//   modo "casa"           as paredes (sem telhado nem chaminé)
+//   modo "telhado"        o telhado (águas + chaminé + encaixes) no sítio
+//   modo "telhado_mesa"   o telhado ao lado da casa, assente na mesa (para imprimir)
+//   sem modo / "tudo"     a casinha numa peça, como antes (sem encaixes)
 function _W()  = _cl(is_undef(largura) ? 60 : largura, 40, 160);
 function _P()  = _cl(is_undef(profundidade) ? 50 : profundidade, 30, 160);
 function _Hw() = _cl(is_undef(altura) ? 50 : altura, 25, 160);
@@ -63,12 +71,40 @@ module chamine() {
     translate([0, 0.18 * _P(), 0]) placa_xz(max(6, 0.14 * W))
         polygon([[x1, zr(x1) - 1.5], [x2, zr(x2) - 1.5], [x2, Hw + Hr + v + 0.12 * Hr], [x1, Hw + Hr + v + 0.12 * Hr]]);
 }
-module casinha() {
+module paredes() {
     W = _W(); P = _P(); t = _t();
     translate([0, -P / 2 + t / 2, 0]) placa_xz(t) empena(true);
     translate([0, P / 2 - t / 2, 0]) placa_xz(t) empena(false);
     for (s = [-1, 1]) translate([s * (W / 2 - t / 2), 0, 0]) rotate([90, 0, 90]) linear_extrude(height = t, center = true) lado();
+}
+module telhado_aguas() {
+    P = _P();
     for (m = [0, 1]) mirror([m, 0, 0]) placa_xz(P + 2 * BEIRAL) agua();
     if (_ch()) chamine();
 }
-casinha();
+// ── encaixes do telhado à parte: uma placa por dentro de cada empena ──
+FOLGA_TELHADO = 0.3;
+ENC_E = 1.6;                                      // espessura das placas de encaixe
+function _ze() = _Hw() - BEIRAL * sin(_th());     // altura da ponta do beiral (base do telhado à parte)
+module encaixe2d() {
+    W = _W(); Hw = _Hw(); Hr = _Hr(); t = _t();
+    xi = W / 2 - t - FOLGA_TELHADO;
+    difference() {
+        // por baixo do telhado (a parte de baixo das águas: z = Hw + Hr·(1 − |x|/(W/2))), entre as paredes
+        // (+0,5 mm para dentro das águas: as placas ficam coladas ao telhado, numa peça só)
+        let(zt = Hw + Hr * (1 - xi / (W / 2)) + 0.5)
+        polygon([[-xi, _ze()], [xi, _ze()], [xi, zt], [0, Hw + Hr + 0.5], [-xi, zt]]);
+        if (Hr > 16) translate([0, Hw + 0.4 * Hr]) circle(r = min(0.16 * Hr, 0.09 * W), $fn = 40);   // o óculo da empena
+    }
+}
+module encaixes() {
+    P = _P(); t = _t();
+    for (s = [-1, 1]) translate([0, s * (P / 2 - t - FOLGA_TELHADO - ENC_E / 2), 0]) placa_xz(ENC_E) encaixe2d();
+}
+module telhado() { telhado_aguas(); encaixes(); }
+
+function _modo() = is_undef(modo) ? "tudo" : modo;
+if (_modo() == "casa") paredes();
+else if (_modo() == "telhado") telhado();
+else if (_modo() == "telhado_mesa") translate([_W() + 2 * BEIRAL + 10, 0, -_ze()]) telhado();
+else { paredes(); telhado_aguas(); }

@@ -145,7 +145,9 @@ async function uploadToStorage(filePath, storagePath, mimeType) {
  */
 export async function gerarFicheirosSeparados({ design, params, base, lista }) {
   const out = [];
-  for (const [i, f] of lista.entries()) {
+  // "so_quando": { "<param>": "<valor>" } (opcional) — o ficheiro só sai com esse valor
+  const ativos = lista.filter(f => !f.so_quando || Object.entries(f.so_quando).every(([k, v]) => String(params[k] ?? '') === String(v)));
+  for (const [i, f] of ativos.entries()) {
     const nome = String(f.nome || `parte_${i + 1}.stl`).replace(/[^\w.-]+/g, '_');
     const stlPath = `${base}_f${i}.stl`;
     try {
