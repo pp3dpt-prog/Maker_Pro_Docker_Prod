@@ -132,7 +132,8 @@ async function uploadToStorage(filePath, storagePath, mimeType) {
  *
  * Com AMS: o template corre uma vez por parte (modo = parte.modo) e as malhas vão
  * para um 3MF com uma peça por cor (Bambu Studio / Orca atribuem um filamento a cada).
- * Sem AMS: um STL único (modo = "tudo") + LEIA-ME com a camada da troca de cor.
+ * Sem AMS: um STL único (modo = "tudo") + LEIA-ME com a camada da troca de cor — ou, com
+ * "sem_ams_ficheiros", peças separadas para imprimir cada uma na sua cor e colar.
  * Partes vazias (p.ex. sem texto) não geram ficheiro e são saltadas; a 1.ª é obrigatória.
  */
 /**
@@ -167,6 +168,18 @@ export function semAms(cfg, params) {
 export async function gerarMulticor({ design, params, base, nomeBase }) {
   const cfg = design.generation_schema.multicor;
   const partesCfg = Array.isArray(cfg.partes) ? cfg.partes : [];
+
+  if (semAms(cfg, params) && Array.isArray(cfg.sem_ams_ficheiros) && cfg.sem_ams_ficheiros.length) {
+    // Sem AMS, peças separadas para imprimir cada uma na sua cor e colar (p.ex. a auréola do anjo):
+    //   "sem_ams_ficheiros": [ { "nome": "anjo.stl", "params": { "modo": "corpo" } }, … ]
+    const fx = await gerarFicheirosSeparados({ design, params, base, lista: cfg.sem_ams_ficheiros });
+    if (Array.isArray(cfg.texto_sem_ams) && cfg.texto_sem_ams.length) {
+      const txtPath = `${base}_leia-me.txt`;
+      await fsp.writeFile(txtPath, [`pp3d.pt — ${design.nome}`, '', ...cfg.texto_sem_ams.map(String), ''].join('\r\n'), 'utf8');
+      fx.push({ name: 'LEIA-ME_impressao.txt', path: txtPath });
+    }
+    return fx;
+  }
 
   if (semAms(cfg, params)) {
     const stlPath = `${base}.stl`;

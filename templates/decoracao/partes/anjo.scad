@@ -2,7 +2,14 @@
 // ── ANJO COM ESTRIAS ──
 // Saia de revolução com estrias, cabeça esférica, asas em placa atrás e auréola de pé por
 // trás da cabeça. Imprime de pé, sem suportes.
-// Parâmetros: altura, largura (diâmetro da base), estrias, relevo, asas (%), aureola
+// Parâmetros: altura, largura (diâmetro da base), estrias, relevo, asas (%), aureola, modo
+// A auréola é uma peça à parte (generation_schema.multicor), recortada pela cabeça — encosta
+// nela sem se sobrepor:
+//   modo "corpo"            o anjo sem auréola
+//   modo "aureola"          a auréola no sítio (com AMS: as duas no mesmo 3MF, cada uma na sua cor)
+//   modo "aureola_deitada"  a auréola deitada na mesa, para imprimir à parte e colar (sem AMS);
+//                           o recorte côncavo encaixa na parte de trás da cabeça
+//   sem modo / "tudo"       tudo junto (pré-visualização)
 function _H()  = _cl(is_undef(altura) ? 110 : altura, 60, 200);
 function _R()  = _cl(is_undef(largura) ? 60 : largura, 30, 120) / 2;
 function _ne() = round(_cl(is_undef(estrias) ? 24 : estrias, 8, 60));
@@ -25,15 +32,29 @@ module asa() {
     zw = 0.56 * _Hb();
     translate([1.5, 0.42 * saia(zw), zw]) placa_xz(3) scale(s) forma2d(NATAL_ASA);
 }
-module aureola() {
+module aureola_anel() {
     rc = _rc();
     translate([0, 0.4 * rc, _zh() + 0.5 * rc]) placa_xz(2.4)
         difference() { circle(r = 1.12 * rc, $fn = 72); circle(r = 0.9 * rc, $fn = 72); }
 }
-module anjo() {
+// a auréola sem a parte que fica dentro da cabeça (a cabeça é uma esfera de raio _rc() em z = _zh())
+module aureola() {
+    difference() {
+        aureola_anel();
+        translate([0, 0, _zh()]) sphere(r = _rc(), $fn = 96);
+    }
+}
+module corpo_anjo() {
     // saia e cabeça num só corpo de revolução (ver rp)
     solido_polar(0, _Ht(), max(96, 6 * _ne()), 100, false);
     for (m = [0, 1]) mirror([m, 0, 0]) asa();
-    if (_sim(is_undef(aureola) ? true : aureola)) aureola();
 }
-anjo();
+function _com_aureola() = _sim(is_undef(aureola) ? true : aureola);
+function _modo() = is_undef(modo) ? "tudo" : modo;
+if (_modo() == "corpo") corpo_anjo();
+else if (_modo() == "aureola") { if (_com_aureola()) aureola(); }
+else if (_modo() == "aureola_deitada") {
+    // deitada (a placa passa a ser horizontal), assente em z = 0
+    if (_com_aureola()) translate([0, 0, 1.2]) rotate([-90, 0, 0]) translate([0, -0.4 * _rc(), -(_zh() + 0.5 * _rc())]) aureola();
+}
+else { corpo_anjo(); if (_com_aureola()) aureola(); }
