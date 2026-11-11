@@ -102,7 +102,7 @@ NATAL_MOLDURAS = [["Círculo", [[50,50],[49.8,54.4],[49.2,58.7],[48.3,62.9],[47,
 // ── ANJO COM ESTRIAS ──
 // Saia de revolução com estrias, cabeça esférica, asas em placa atrás e auréola de pé por
 // trás da cabeça. Imprime de pé, sem suportes.
-// Parâmetros: altura, largura (diâmetro da base), estrias, relevo, asas (%), aureola, modo
+// Parâmetros: altura, largura (diâmetro da base), estrias, relevo, asas (%), aureola, olhos, modo
 // A auréola é uma peça à parte (generation_schema.multicor), recortada pela cabeça — encosta
 // nela sem se sobrepor:
 //   modo "corpo"            o anjo sem auréola
@@ -144,10 +144,22 @@ module aureola() {
         translate([0, 0, _zh()]) sphere(r = _rc(), $fn = 96);
     }
 }
+// olhos: duas covinhas na frente (−y) da cabeça (olhos fechados/serenos, para pintar ou deixar)
+function _com_olhos() = _sim(is_undef(olhos) ? true : olhos);
+module olhos() {
+    rc = _rc(); ro = 0.1 * rc; z = _zh() + 0.08 * rc;
+    for (sx = [-1, 1]) let(a = 270 + sx * 22, rr = sqrt(rc * rc - pow(z - _zh(), 2)) + 0.25 * ro)
+        translate([rr * cos(a), rr * sin(a), z]) sphere(r = ro, $fn = 32);
+}
 module corpo_anjo() {
     // saia e cabeça num só corpo de revolução (ver rp)
-    solido_polar(0, _Ht(), max(96, 6 * _ne()), 100, false);
-    for (m = [0, 1]) mirror([m, 0, 0]) asa();
+    difference() {
+        union() {
+            solido_polar(0, _Ht(), max(96, 6 * _ne()), 100, false);
+            for (m = [0, 1]) mirror([m, 0, 0]) asa();
+        }
+        if (_com_olhos()) olhos();
+    }
 }
 function _com_aureola() = _sim(is_undef(aureola) ? true : aureola);
 function _modo() = is_undef(modo) ? "tudo" : modo;
