@@ -19,6 +19,7 @@ import { GERADORES_ILUMINARIA, gerarIluminaria, trisParaStl } from '../app/ilumi
 import { scadVars }           from '../lib/scad.js';
 import { aplicarAjusteTexto } from '../lib/textFit.js';
 import { aplicarLogo } from '../lib/logo.js';
+import { temLicencaComercial } from '../lib/licenca.js';
 import { ENGINE_VETOR, gerarFicheirosVetor, validarCaminhoImagem, obterVetor } from '../app/vetorPortachaves.js';
 import { tresMf, lerStl, stlBinario } from '../app/ficheiros3d.js';
 import { fatiasParaTriangulos } from '../app/vetorGeom.js';
@@ -256,6 +257,11 @@ export async function downloadStl(req, res) {
     if (designError || !design) {
       console.error('Design não encontrado:', designError);
       return res.status(404).send('DESIGN_NOT_FOUND');
+    }
+
+    // Modelos exclusivos para makers com licença comercial (lib/licenca.js)
+    if (design.requer_licenca_comercial && !(await temLicencaComercial(supabase, user.id))) {
+      return res.status(403).send('COMMERCIAL_LICENSE_REQUIRED');
     }
 
     // Verificar plano e limite de downloads

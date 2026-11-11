@@ -19,6 +19,7 @@ import { fileURLToPath } from 'url';
 import { dirname }       from 'path';
 import { aplicarAjusteTexto } from '../lib/textFit.js';
 import { aplicarLogo } from '../lib/logo.js';
+import { temLicencaComercial } from '../lib/licenca.js';
 import { scadVars } from '../lib/scad.js';
 
 // Jimp é CommonJS — compatível com ESM em Node 20
@@ -423,12 +424,18 @@ export async function gerarStlPro(req, res) {
     // 4. Design
     const { data: design, error: dErr } = await supabase
       .from(DESIGNS_TABLE)
-      .select('id, familia, scad_template, generation_schema, qualidade_preview, qualidade_final')
+      .select('id, familia, scad_template, generation_schema, qualidade_preview, qualidade_final, requer_licenca_comercial')
       .eq('id', String(produtoId))
       .maybeSingle();
 
     if (dErr || !design) {
       return res.status(404).json({ error: 'Design não encontrado.' });
+    }
+
+    // Exclusivos com licença comercial: a pré-visualização é livre, o ficheiro final não (lib/licenca.js)
+    if (design.requer_licenca_comercial && String(mode || 'preview').toLowerCase() !== 'preview'
+        && !(await temLicencaComercial(supabase, user.id))) {
+      return res.status(403).json({ error: 'Este modelo é exclusivo para makers com licença comercial.' });
     }
 
     // ── Iluminárias (gerador JS, sem template OpenSCAD) ─────────────────
