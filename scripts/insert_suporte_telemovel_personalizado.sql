@@ -1,0 +1,12 @@
+-- Suporte de telemóvel para o monitor — personalizado (2026-11-11), em RASCUNHO, mesma família e
+-- preços do suporte_telemovel_monitor. Aplicado em produção com verificação por MD5 (template em
+-- templates/suporte_telemovel_monitor_personalizado.scad, md5 76c8d3d4b212eb93f1f7f11d094f7051).
+-- generation_schema (além dos parâmetros):
+--   multicor.partes: corpo (Suporte) / parafusos / rampa / labio → 3MF com uma peça por cor (sem
+--     param_impressao: é sempre 3MF)
+--   logo: lista com prefixos "rampa" e "labio" (lib/logo.js aceita agora várias imagens; só
+--     vectoriza quando conteudo_<zona> = "Imagem"; simplificar_mm 0,1 e max_pontos 4000 para o CGAL)
+--   ajuste_texto: texto_rampa / texto_labio com largura_util_param = largura (− 8 mm de margem) e
+--     tamanho_param_por_campo (lib/textFit.js)
+--   suporte = "telemovel_personalizado" (escondido) → pré-visualização ao vivo no frontend.
+-- Para refazer o schema: SELECT generation_schema FROM prod_designs WHERE id = 'suporte_telemovel_personalizado';
