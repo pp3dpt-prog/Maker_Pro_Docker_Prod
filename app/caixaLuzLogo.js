@@ -20,6 +20,7 @@
  */
 import ClipperLib from 'clipper-lib';
 import { construirPecas, fatiasParaTriangulos, limparPequenos } from './vetorGeom.js';
+import { planoDivisao, fatiasNoBloco } from './divisaoBlocos.js';
 
 const ESC = 1000;
 const C = ClipperLib;
@@ -278,21 +279,44 @@ export function construirCaixaLuzLogo(vetor, params) {
     r.avisos.push(`O contorno (${Number(r.parametros.contorno).toFixed(1)} mm) é estreito para o encaixe da frente: o desenho junto à borda fica escondido pelo aro do corpo. Aumenta o contorno para ${(aroDe(geo.paredeMm) + FOLGA_ENCAIXE + 0.5).toFixed(1)} mm ou mais.`);
   }
 
-  const corpoTris = fatiasParaTriangulos(corpoFatias(fronteira, geo));
-  const tampaTris = geo.temTampa ? fatiasParaTriangulos(tampaFatias(fronteira, geo)) : null;
+  const corpoF = corpoFatias(fronteira, geo);
+  const tampaF = geo.temTampa ? tampaFatias(fronteira, geo) : null;
+  const corpoTris = fatiasParaTriangulos(corpoF);
+  const tampaTris = tampaF ? fatiasParaTriangulos(tampaF) : null;
 
-  // Ainda sem divisão automática pela mesa — só avisa se a peça não couber de uma vez.
-  if (r.largura > geo.mesaXMm || r.altura > geo.mesaYMm) {
+  // Peça maior do que a mesa: divisão em blocos (app/divisaoBlocos.js) — cortes sugeridos ou os
+  // do cliente (params.cortes_x / cortes_y), aplicados a TODAS as peças (corpo, tampa, frente, cores).
+  const divisao = planoDivisao({
+    fronteira,
+    cores: r.pecas.slice(1).map(pc => pc.fatias[0]?.regiao ?? []),
+    mesaX: geo.mesaXMm, mesaY: geo.mesaYMm, params,
+  });
+  if (divisao?.ativo) {
+    divisao.blocos = divisao.blocos.map(b => {
+      const corpoB = fatiasNoBloco(corpoF, b);
+      const tampaB = tampaF ? fatiasNoBloco(tampaF, b) : [];
+      return {
+        ...b,
+        corpoTris: corpoB.length ? fatiasParaTriangulos(corpoB) : null,
+        tampaTris: tampaB.length ? fatiasParaTriangulos(tampaB) : null,
+        pecas: r.pecas.map(pc => ({ ...pc, fatias: fatiasNoBloco(pc.fatias, b) })).filter(pc => pc.fatias.length),
+      };
+    }).filter(b => b.corpoTris || b.tampaTris || b.pecas.length);
+    const grandes = divisao.blocos.filter(b => !b.cabe);
+    r.avisos.push(`Dividida em ${divisao.blocos.length} blocos (${divisao.blocos.map(b => b.id).join(', ')}) para caber na mesa de ${geo.mesaXMm.toFixed(0)} × ${geo.mesaYMm.toFixed(0)} mm.`);
+    if (grandes.length) {
+      r.avisos.push(`Os blocos ${grandes.map(b => `${b.id} (${b.w.toFixed(0)} × ${b.h.toFixed(0)} mm)`).join(', ')} não cabem na mesa — ajusta os cortes ou repõe a sugestão.`);
+    }
+  } else if (divisao && !divisao.cabeInteira) {
     r.avisos.push(
       `A peça (${r.largura.toFixed(0)} × ${r.altura.toFixed(0)} mm) não cabe de uma vez na mesa indicada ` +
-      `(${geo.mesaXMm.toFixed(0)} × ${geo.mesaYMm.toFixed(0)} mm). Reduz a largura ou usa uma impressora com mesa maior ` +
-      `— a divisão automática em blocos ainda não está disponível.`
+      `(${geo.mesaXMm.toFixed(0)} × ${geo.mesaYMm.toFixed(0)} mm). Ativa a divisão em blocos, reduz a largura ou usa uma impressora com mesa maior.`
     );
   }
-  return { r, geo, corpoTris, tampaTris, formaTipo };
+  return { r, geo, corpoTris, tampaTris, formaTipo, divisao };
 }
 
-export function guiaCaixaLuzLogo(r, geo, formaTipo) {
+export function guiaCaixaLuzLogo(r, geo, formaTipo, divisao = null) {
   const sep = '='.repeat(49);
   const fmt = (v) => Number(v).toFixed(1);
   const nomesForma = { imagem: 'à volta do desenho', redonda: 'redonda', quadrada: 'quadrada', hexagonal: 'hexagonal' };
@@ -339,6 +363,16 @@ export function guiaCaixaLuzLogo(r, geo, formaTipo) {
   L.push(`    Folga do encaixe: ${fmt(FOLGA_ENCAIXE)} mm por lado. Se entrar apertada, lixa a borda;`);
   L.push('    se ficar solta, um ponto de cola no degrau.');
   L.push('  * Cola as peças de cor por cima da frente, nos encaixes.');
+  if (divisao?.ativo) {
+    L.push('', sep, '', '  DIVISAO EM BLOCOS:');
+    L.push(`  ${divisao.blocos.length} blocos — colunas A, B, C… da esquerda para a direita, linhas 1, 2… de`);
+    L.push('  cima para baixo (visto de frente). Cada ficheiro tem o nome do bloco (ex.: corpo_A1.stl).');
+    for (const b of divisao.blocos) L.push(`  ${b.id.padEnd(4)}: ${fmt(b.w)} x ${fmt(b.h)} mm${b.cabe ? '' : '  (NAO CABE NA MESA!)'}`);
+    L.push('  * Imprime todos os blocos de cada peça com o mesmo filamento e as mesmas definições.');
+    L.push('  * Cola primeiro os blocos do corpo uns aos outros (cianoacrilato ou cola de contacto),');
+    L.push('    numa superfície plana; depois os da frente, dentro do rebaixo, e por fim as cores.');
+    L.push('  * Uma tira de fita-cola transparente por trás das juntas da frente ajuda a alinhar.');
+  }
   if (r.avisos.length) L.push('', '  AVISOS:', ...r.avisos.map(a => `  ! ${a}`));
   L.push('', '  NOTA: peca nova — confirma o encaixe frente/corpo e a difusão da', '  luz antes de produzir em serie.', '', sep);
   return L.join('\r\n');

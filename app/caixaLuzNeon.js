@@ -11,6 +11,7 @@
  * diretamente da fita de neon, visível pela abertura do canal.
  */
 import ClipperLib from 'clipper-lib';
+import { planoDivisao, fatiasNoBloco } from './divisaoBlocos.js';
 import { fatiasParaTriangulos } from './vetorGeom.js';
 
 const ESC = 1000;
@@ -114,15 +115,23 @@ export function construirCaixaLuzNeon(vetor, parametros) {
   const largura = maxX - minX, altura = maxY - minY;
 
   const avisos = [...(vetor.avisos ?? [])];
-  if (largura > p.mesa_x_mm || altura > p.mesa_y_mm) {
+  // Maior do que a mesa: divisão em blocos (app/divisaoBlocos.js), cortes sugeridos ou do cliente
+  const divisao = planoDivisao({ fronteira: trilha, mesaX: p.mesa_x_mm, mesaY: p.mesa_y_mm, params: parametros });
+  if (divisao?.ativo) {
+    divisao.blocos = divisao.blocos
+      .map(b => { const fb = fatiasNoBloco(fatias, b); return { ...b, tris: fb.length ? fatiasParaTriangulos(fb) : null }; })
+      .filter(b => b.tris);
+    avisos.push(`Dividida em ${divisao.blocos.length} blocos (${divisao.blocos.map(b => b.id).join(', ')}) para caber na mesa de ${p.mesa_x_mm.toFixed(0)} × ${p.mesa_y_mm.toFixed(0)} mm.`);
+    const grandes = divisao.blocos.filter(b => !b.cabe);
+    if (grandes.length) avisos.push(`Os blocos ${grandes.map(b => `${b.id} (${b.w.toFixed(0)} × ${b.h.toFixed(0)} mm)`).join(', ')} não cabem na mesa — ajusta os cortes ou repõe a sugestão.`);
+  } else if (divisao && !divisao.cabeInteira) {
     avisos.push(
       `A peça (${largura.toFixed(0)} × ${altura.toFixed(0)} mm) não cabe de uma vez na mesa indicada ` +
-      `(${p.mesa_x_mm.toFixed(0)} × ${p.mesa_y_mm.toFixed(0)} mm). Reduz a largura ou usa uma impressora com mesa maior ` +
-      `— a divisão automática em blocos ainda não está disponível.`
+      `(${p.mesa_x_mm.toFixed(0)} × ${p.mesa_y_mm.toFixed(0)} mm). Ativa a divisão em blocos, reduz a largura ou usa uma impressora com mesa maior.`
     );
   }
 
-  return { tris, geo: p, largura, altura, alturaTotal: alturaCanalTotal, avisos };
+  return { tris, geo: p, largura, altura, alturaTotal: alturaCanalTotal, avisos, divisao };
 }
 
 export function guiaCaixaLuzNeon(res) {
@@ -135,6 +144,12 @@ export function guiaCaixaLuzNeon(res) {
   L.push('', sep, '', '  PECAS:');
   L.push('  1) canal.stl - uma peça só, com o fundo fechado. De pé ou deitada,');
   L.push('     sem suportes (o canal fica sempre aberto por cima).');
+  if (res.divisao?.ativo) {
+    L.push('', sep, '', '  DIVISAO EM BLOCOS:');
+    L.push(`  ${res.divisao.blocos.length} blocos (canal_A1.stl, …) — colunas A, B… da esquerda para a direita,`);
+    L.push('  linhas 1, 2… de cima para baixo. Cola-os topo a topo (cianoacrilato) numa superfície plana.');
+    for (const b of res.divisao.blocos) L.push(`  ${b.id.padEnd(4)}: ${fmt(b.w)} x ${fmt(b.h)} mm${b.cabe ? '' : '  (NAO CABE NA MESA!)'}`);
+  }
   L.push('', sep, '', '  MONTAGEM:');
   L.push('  * Encaixa a fita de neon LED (confirma a largura e a profundidade');
   L.push('    do canal contra a fita real antes de produzir em série) no canal,');

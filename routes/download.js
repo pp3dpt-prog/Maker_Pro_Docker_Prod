@@ -535,34 +535,43 @@ export async function downloadStl(req, res) {
         throw Object.assign(new Error('Carrega uma imagem/SVG.'), { status: 400 });
       }
       const vetorCL = await obterVetor(paramsNormalizados.image_path, paramsNormalizados);
-      const { r: rCL, geo: geoCL, corpoTris, tampaTris, formaTipo } = construirCaixaLuzLogo(vetorCL, paramsNormalizados);
+      const { r: rCL, geo: geoCL, corpoTris, tampaTris, formaTipo, divisao } = construirCaixaLuzLogo(vetorCL, paramsNormalizados);
 
-      const corpoPath = `${base}_corpo.stl`;
-      await fsp.writeFile(corpoPath, stlBinario(corpoTris, 'corpo'));
-      files.push({ name: 'corpo.stl', path: corpoPath });
-
-      if (tampaTris) {
-        const tampaPath = `${base}_tampa.stl`;
-        await fsp.writeFile(tampaPath, stlBinario(tampaTris, 'tampa'));
-        files.push({ name: 'tampa.stl', path: tampaPath });
-      }
-
-      if (rCL.parametros.modo === 'ams') {
-        const partes = rCL.pecas.map(pc => ({ nome: pc.nome, cor: pc.cor, tri: fatiasParaTriangulos(pc.fatias) }));
-        const mfPath = `${base}_frente.3mf`;
-        await fsp.writeFile(mfPath, await tresMf(partes, 'frente'));
-        files.push({ name: 'frente.3mf', path: mfPath });
-      } else {
-        for (const pc of rCL.pecas) {
-          const nomeF = rCL.pecas.length === 1 ? 'frente' : `frente_${pc.nome.replace(/\s+/g, '_')}${pc.solta ? `_${pc.cor.slice(1)}` : ''}`;
-          const p = `${base}_${nomeF}.stl`;
-          await fsp.writeFile(p, stlBinario(fatiasParaTriangulos(pc.fatias), pc.nome));
-          files.push({ name: `${nomeF}.stl`, path: p });
+      // Sem divisão: um bloco "inteiro" com tudo; com divisão: um conjunto de ficheiros por bloco
+      // (corpo_A1.stl, tampa_A1.stl, frente_A1…) — ver app/divisaoBlocos.js
+      const blocosCL = divisao?.ativo
+        ? divisao.blocos
+        : [{ id: '', corpoTris, tampaTris, pecas: rCL.pecas }];
+      for (const b of blocosCL) {
+        const suf = b.id ? `_${b.id}` : '';
+        if (b.corpoTris) {
+          const corpoPath = `${base}_corpo${suf}.stl`;
+          await fsp.writeFile(corpoPath, stlBinario(b.corpoTris, `corpo${suf}`));
+          files.push({ name: `corpo${suf}.stl`, path: corpoPath });
+        }
+        if (b.tampaTris) {
+          const tampaPath = `${base}_tampa${suf}.stl`;
+          await fsp.writeFile(tampaPath, stlBinario(b.tampaTris, `tampa${suf}`));
+          files.push({ name: `tampa${suf}.stl`, path: tampaPath });
+        }
+        if (!b.pecas.length) continue;
+        if (rCL.parametros.modo === 'ams') {
+          const partes = b.pecas.map(pc => ({ nome: pc.nome, cor: pc.cor, tri: fatiasParaTriangulos(pc.fatias) }));
+          const mfPath = `${base}_frente${suf}.3mf`;
+          await fsp.writeFile(mfPath, await tresMf(partes, `frente${suf}`));
+          files.push({ name: `frente${suf}.3mf`, path: mfPath });
+        } else {
+          for (const pc of b.pecas) {
+            const nomeF = (rCL.pecas.length === 1 ? 'frente' : `frente_${pc.nome.replace(/\s+/g, '_')}${pc.solta ? `_${pc.cor.slice(1)}` : ''}`) + suf;
+            const p = `${base}_${nomeF}.stl`;
+            await fsp.writeFile(p, stlBinario(fatiasParaTriangulos(pc.fatias), pc.nome));
+            files.push({ name: `${nomeF}.stl`, path: p });
+          }
         }
       }
 
       const guiaPath = `${base}_guia.txt`;
-      await fsp.writeFile(guiaPath, guiaCaixaLuzLogo(rCL, geoCL, formaTipo), 'ascii');
+      await fsp.writeFile(guiaPath, guiaCaixaLuzLogo(rCL, geoCL, formaTipo, divisao), 'ascii');
       files.push({ name: 'guia_caixa_luz_logo.txt', path: guiaPath });
     } else if (isCaixaLuzNeon) {
       // Caixa de Luz — Canal de Neon: segue uma linha (nome/traço ou SVG a
@@ -577,9 +586,13 @@ export async function downloadStl(req, res) {
       const vetorN = vetorizarLinhasSvg(Buffer.from(await svgData.arrayBuffer()));
       const resN = construirCaixaLuzNeon(vetorN, paramsNormalizados);
 
-      const canalPath = `${base}_canal.stl`;
-      await fsp.writeFile(canalPath, stlBinario(resN.tris, 'canal'));
-      files.push({ name: 'canal.stl', path: canalPath });
+      // com divisão em blocos (app/divisaoBlocos.js): canal_A1.stl, canal_B1.stl, …
+      for (const b of resN.divisao?.ativo ? resN.divisao.blocos : [{ id: '', tris: resN.tris }]) {
+        const suf = b.id ? `_${b.id}` : '';
+        const canalPath = `${base}_canal${suf}.stl`;
+        await fsp.writeFile(canalPath, stlBinario(b.tris, `canal${suf}`));
+        files.push({ name: `canal${suf}.stl`, path: canalPath });
+      }
 
       const guiaPath = `${base}_guia.txt`;
       await fsp.writeFile(guiaPath, guiaCaixaLuzNeon(resN), 'ascii');
