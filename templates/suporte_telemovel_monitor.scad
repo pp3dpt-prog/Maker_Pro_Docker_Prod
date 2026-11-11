@@ -1,23 +1,27 @@
 // ── SUPORTE DE TELEMÓVEL PARA DEBAIXO DO MONITOR ──
 //
-// Perfil em "C" (placa + aba de cima + lábio de baixo) que aperta, com dois parafusos de cabeça
-// serrilhada, a base/pé do monitor; à frente desce uma rampa que acaba numa curva, e um reforço
-// triangular (apoio das costas do telemóvel) liga a rampa à placa.
+// Prende-se à parte de baixo do ecrã: a base fica deitada por baixo da moldura, o lábio sobe à frente
+// só até à altura da moldura (para não tapar o ecrã) e as abas de trás, com os parafusos de cabeça
+// serrilhada, apertam contra as costas do monitor. Da frente da base desce a rampa (onde encosta o
+// telemóvel), inclinada para trás, que acaba numa curva em J onde assenta o fundo do telemóvel;
+// um reforço triangular liga a rampa à base, por trás.
 //
 // Sai já na orientação de impressão: o perfil deitado na mesa (XY) e extrudido em Z (largura).
-// As abas com a rosca fêmea e os parafusos são polyhedrons gerados por fórmula (anéis em volta do
-// eixo): só a aba se une à placa, e os parafusos vão num só polyhedron (sem uniões).
+// No perfil a base está "de pé" (rodar 90° para a esquerda dá a posição de uso: x do perfil → para
+// cima, y do perfil → para trás). As abas com a rosca fêmea e os parafusos são polyhedrons gerados
+// por fórmula (anéis em volta do eixo): só a aba se une à base, e os parafusos vão num só
+// polyhedron (sem uniões).
 //
-// Perfil (x para o lado do monitor, y para cima, origem no canto de baixo da face da frente da placa):
-//   placa      x 0..placa,              y 0..H   (H = labio + vao + altura_aba)
-//   lábio      x 0..placa+compr_labio,  y 0..labio
+// Perfil (origem no canto da frente/baixo da base):
+//   base       x 0..placa,              y 0..H   (H = labio + vao + altura_aba; vao = espessura do monitor)
+//   lábio      x 0..placa+compr_labio,  y 0..labio      (compr_labio = altura acima da base, ≤ moldura)
 //   abas       x placa..placa+lado_aba, y H-altura_aba..H  (uma por parafuso, com rosca)
-//   rampa      parte do canto de baixo e desce para a frente com angulo_rampa
+//   rampa      desce da frente da base, altura_rampa (na vertical, em uso) e angulo_rampa para trás
 //   curva      raio_curva (ao eixo da chapa), angulo_curva graus, ponta arredondada
-//   reforço    triângulo entre a rampa (a base_reforco mm da placa) e a placa (a altura_reforco)
+//   reforço    triângulo entre a rampa (a base_reforco mm) e a base (a altura_reforco mm da frente)
 //
 // Parâmetros: peca ("Tudo", "Suporte", "Parafusos"), largura, vao, espessura_placa, espessura_labio,
-//   comprimento_labio, altura_aba, lado_aba, num_parafusos (1 ou 2), comprimento_rampa,
+//   comprimento_labio, altura_aba, lado_aba, num_parafusos (1 ou 2), altura_rampa,
 //   angulo_rampa, espessura_rampa, raio_curva, angulo_curva, reforco ("Inteiro", "Duas nervuras",
 //   "Central", "Sem"), altura_reforco, base_reforco, espessura_nervura, ranhura_cabo,
 //   largura_ranhura, diametro_rosca, passo_rosca, folga_rosca, comprimento_parafuso,
@@ -34,7 +38,7 @@ function _tl()   = is_undef(espessura_labio) ? 6 : espessura_labio;
 function _ll()   = is_undef(comprimento_labio) ? 12 : comprimento_labio;
 function _ha()   = is_undef(altura_aba) ? 13 : altura_aba;
 function _np()   = (is_undef(num_parafusos) || num_parafusos >= 2) && _W() >= 2 * _lado() + 2 ? 2 : 1;   // 2 só se couberem
-function _Lr()   = is_undef(comprimento_rampa) ? 50 : comprimento_rampa;
+function _Lr()   = min(150, is_undef(altura_rampa) ? 48 : altura_rampa) / cos(_a());   // ao longo da rampa
 function _a()    = is_undef(angulo_rampa) ? 18 : angulo_rampa;
 function _tr()   = is_undef(espessura_rampa) ? 6 : espessura_rampa;
 function _R()    = max(_tr() / 2 + 1, is_undef(raio_curva) ? 13.5 : raio_curva);

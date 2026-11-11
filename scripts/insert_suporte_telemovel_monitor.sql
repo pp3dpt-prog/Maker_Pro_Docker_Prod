@@ -1,6 +1,9 @@
 -- Suporte de telemóvel para debaixo do monitor (2026-11-11), em RASCUNHO, família 'suportes'.
 -- Aplicado em produção com verificação por MD5 (template em templates/suporte_telemovel_monitor.scad,
--- md5 199b9b3795ed3eb839aeab71a7683850), copiando da suporte_bases_copos o plano e os preços.
+-- md5 90210f7a5a1d4edd6a064730648c4125), copiando da suporte_bases_copos o plano e os preços.
 -- generation_schema: parâmetro escondido suporte = "telemovel_monitor" (o frontend usa-o para a
 -- pré-visualização ao vivo — lib/suporteTelemovel.ts).
 -- Para refazer o schema: SELECT generation_schema FROM prod_designs WHERE id = 'suporte_telemovel_monitor';
+-- 2026-11-11 (2.ª versão): prende-se à parte de baixo do ecrã (lábio à frente, na moldura; parafusos
+-- atrás) e não ao pé do monitor; comprimento_rampa → altura_rampa (vertical em uso, máx. 150 mm);
+-- rótulos e texto de ajuda do generation_schema reescritos para a posição de uso.
