@@ -196,7 +196,8 @@ export function fatiasNoBloco(fatias, bloco) {
     c.AddPaths(r, C.PolyType.ptClip, true);
     const sol = new C.Paths();
     c.Execute(C.ClipType.ctIntersection, sol, C.PolyFillType.pftNonZero, C.PolyFillType.pftNonZero);
-    if (sol.length) out.push({ ...f, regiao: sol });
+    const reg = semMigalhas(sol);
+    if (reg.length) out.push({ ...f, regiao: reg });
   }
   return out;
 }
@@ -221,3 +222,182 @@ export function planoDivisao({ fronteira, cores = [], mesaX, mesaY, params }) {
   const blocos = blocosDe(bb, fx, fy, mesaX, mesaY);
   return { ativo: blocos.length > 1, bb, cabeInteira, sugestao, fx, fy, blocos };
 }
+
+// ══ Encaixes entre blocos ══════════════════════════════════════════════════════════════════════
+// Sem peças de reforço por trás (fariam sombra na frente iluminada): as próprias juntas encaixam.
+//  • Painéis (frente, tampa): rabos de andorinha no plano do painel, ao longo de cada corte — o
+//    bloco da esquerda/de cima tem as patilhas, o vizinho os entalhes (com FOLGA à volta). Só se
+//    vê a linha fina da junta, e os blocos ficam presos no plano e alinhados.
+//  • Paredes (corpo, canal do neon): a junta em ziguezague na altura (dentes a 45°, imprimíveis
+//    sem suportes de pé) — alinha os blocos em altura e dá mais área de cola. Feita em fatias finas
+//    só junto ao corte; o resto da parede continua a ser um prisma só.
+
+export const ENCAIXE = {
+  folga: 0.15,          // mm de folga total entre blocos
+  // rabo de andorinha (painéis)
+  pescoco: 6, cabeca: 10, comprimento: 6, espaco: 35, margem: 2,
+  // dentes das paredes
+  amplitude: 2.5, periodo: 10, passoZ: 0.3,
+};
+
+const P = (x, y) => ({ X: Math.round(x * ESC), Y: Math.round(y * ESC) });
+/** Tira migalhas (< 0,5 mm²) que os cortes deixam nos cantos. */
+const semMigalhas = (paths) => paths.filter(q => Math.abs(C.Clipper.Area(q)) >= 0.5 * ESC * ESC);
+const rectP = (x0, x1, y0, y1) => [[P(x0, y0), P(x1, y0), P(x1, y1), P(x0, y1)]];
+function clip(tipo, a, b) {
+  if (!a.length) return tipo === C.ClipType.ctUnion ? b : [];
+  if (!b.length) return tipo === C.ClipType.ctIntersection ? [] : a;
+  const c = new C.Clipper();
+  c.AddPaths(a, C.PolyType.ptSubject, true);
+  c.AddPaths(b, C.PolyType.ptClip, true);
+  const sol = new C.Paths();
+  c.Execute(tipo, sol, C.PolyFillType.pftNonZero, C.PolyFillType.pftNonZero);
+  return sol;
+}
+const uniaoP = (a, b) => clip(C.ClipType.ctUnion, a, b);
+const difP = (a, b) => clip(C.ClipType.ctDifference, a, b);
+const interP = (a, b) => clip(C.ClipType.ctIntersection, a, b);
+function offsetP(paths, mm) {
+  if (!paths.length) return paths;
+  const co = new C.ClipperOffset(2, 0.02 * ESC);
+  co.AddPaths(paths, C.JoinType.jtMiter, C.EndType.etClosedPolygon);
+  const out = new C.Paths();
+  co.Execute(out, mm * ESC);
+  return out;
+}
+
+/** Intervalos [a, b] (mm) da linha eixo = v dentro de `paths` (paridade par-ímpar). */
+function intervalos(paths, eixo, v) {
+  const us = [];
+  for (const q of paths) for (let k = 0; k < q.length; k++) {
+    const A = q[k], B = q[(k + 1) % q.length];
+    const a = (eixo === 'x' ? A.X : A.Y) / ESC, b = (eixo === 'x' ? B.X : B.Y) / ESC;
+    if (a === b) continue;
+    const lo = Math.min(a, b), hi = Math.max(a, b);
+    if (v < lo || v >= hi) continue;
+    const ua = (eixo === 'x' ? A.Y : A.X) / ESC, ub = (eixo === 'x' ? B.Y : B.X) / ESC;
+    us.push(ua + ((v - a) / (b - a)) * (ub - ua));
+  }
+  us.sort((x, y) => x - y);
+  const out = [];
+  for (let k = 0; k + 1 < us.length; k += 2) out.push([us[k], us[k + 1]]);
+  return out;
+}
+
+const chave = (col, lin) => `${col},${lin}`;
+function vizinhos(blocos) {
+  const m = new Map(blocos.map(b => [chave(b.col, b.lin), b]));
+  return blocos.map(b => ({ b, dir: m.get(chave(b.col + 1, b.lin)), baixo: m.get(chave(b.col, b.lin + 1)) }));
+}
+/** Lados do bloco que são cortes (e não a borda da peça). */
+const internos = (b, nCols, nLins) => ({ esq: b.col > 0, dir: b.col < nCols - 1, cima: b.lin > 0, baixo: b.lin < nLins - 1 });
+
+/**
+ * Zonas 2D de cada bloco (Map id → paths) para um painel, com rabos de andorinha nos cortes.
+ * `ref`: região do painel (onde as patilhas têm de caber inteiras).
+ */
+export function zonasComEncaixes(ref, divisao, opt = ENCAIXE) {
+  const { blocos } = divisao;
+  const nCols = Math.max(...blocos.map(b => b.col)) + 1, nLins = Math.max(...blocos.map(b => b.lin)) + 1;
+  const f = opt.folga, h2 = f / 2;
+  const zonas = new Map();
+  for (const b of blocos) {
+    const i = internos(b, nCols, nLins);
+    zonas.set(b.id, rectP(i.esq ? b.x0 + h2 : b.rect.x0, i.dir ? b.x1 - h2 : b.rect.x1, i.baixo ? b.y0 + h2 : b.rect.y0, i.cima ? b.y1 - h2 : b.rect.y1));
+  }
+  const dentro = offsetP(ref, -opt.margem);
+  const meio = opt.cabeca / 2 + opt.margem + 1;
+  // patilha ao longo de um corte: u ao longo do corte, t para dentro do vizinho
+  const patilha = (pt) => [[pt(-1, -opt.pescoco / 2), pt(0, -opt.pescoco / 2), pt(opt.comprimento, -opt.cabeca / 2),
+    pt(opt.comprimento, opt.cabeca / 2), pt(0, opt.pescoco / 2), pt(-1, opt.pescoco / 2)]];
+  for (const { b, dir, baixo } of vizinhos(blocos)) {
+    const lados = [];
+    if (dir) lados.push({ viz: dir, eixo: 'x', c: b.x1, lo: b.y0, hi: b.y1, i: internos(b, nCols, nLins), pt: (u) => (t, s) => P(b.x1 + t, u + s) });
+    if (baixo) lados.push({ viz: baixo, eixo: 'y', c: b.y0, lo: b.x0, hi: b.x1, i: internos(b, nCols, nLins), pt: (u) => (t, s) => P(u + s, b.y0 - t) });
+    for (const L of lados) {
+      // afasta as patilhas dos cortes perpendiculares (cantos dos blocos)
+      const lo = L.lo + (L.eixo === 'x' ? (L.i.baixo ? meio : 0) : (L.i.esq ? meio : 0));
+      const hi = L.hi - (L.eixo === 'x' ? (L.i.cima ? meio : 0) : (L.i.dir ? meio : 0));
+      for (const [a0, b0] of intervalos(ref, L.eixo, L.c)) {
+        const a = Math.max(a0 + meio, lo), z = Math.min(b0 - meio, hi);
+        if (z < a) continue;
+        // candidatas de 2 em 2 mm onde a patilha cabe inteira no painel; escolhe-se com o
+        // espaçamento pedido, centradas no troço que as aceita
+        const ok = [];
+        for (let u = a; u <= z + 1e-6; u += 2) if (!difP(patilha(L.pt(u)), dentro).length) ok.push(u);
+        if (!ok.length) continue;
+        const escolhidas = [];
+        for (const u of ok) if (!escolhidas.length || u - escolhidas[escolhidas.length - 1] >= opt.espaco) escolhidas.push(u);
+        const sobra = ok[ok.length - 1] - escolhidas[escolhidas.length - 1];
+        const desvio = Math.min(sobra / 2, Math.max(0, opt.espaco / 2));
+        for (const u0 of escolhidas) {
+          // desloca para centrar, se a posição deslocada ainda couber
+          const u = ok.some(v => Math.abs(v - (u0 + desvio)) < 1.01) ? u0 + desvio : u0;
+          const T = patilha(L.pt(u));
+          zonas.set(b.id, uniaoP(zonas.get(b.id), T));
+          zonas.set(L.viz.id, difP(zonas.get(L.viz.id), offsetP(T, f)));
+        }
+      }
+    }
+  }
+  return zonas;
+}
+
+/** Fatias recortadas por uma zona 2D (Clipper paths). */
+export function fatiasNaZona(fatias, zona) {
+  const out = [];
+  for (const f of fatias) {
+    if (!f.regiao?.length) continue;
+    const r = semMigalhas(interP(f.regiao, zona));
+    if (r.length) out.push({ ...f, regiao: r });
+  }
+  return out;
+}
+
+/**
+ * Paredes (fatias de pé, z para cima) cortadas com dentes a 45° em cada corte: Map id → fatias.
+ * Cada bloco = prisma inteiro longe dos cortes + fatias finas (passoZ) numa faixa à volta deles.
+ */
+export function paredesComDentes(fatias, divisao, opt = ENCAIXE) {
+  const { blocos } = divisao;
+  const nCols = Math.max(...blocos.map(b => b.col)) + 1, nLins = Math.max(...blocos.map(b => b.lin)) + 1;
+  const A = opt.amplitude, h2 = opt.folga / 2, F = 1e4;
+  const tri = (x) => 1 - 2 * Math.abs(x - Math.floor(x) - 0.5);       // 0..1..0
+  const corte = (c, z) => c + A * (2 * tri(z / opt.periodo) - 1);   // ±A, inclinação 4A/periodo = 45°
+  const out = new Map();
+  for (const b of blocos) {
+    const i = internos(b, nCols, nLins);
+    const nucleo = rectP(i.esq ? b.x0 + A + h2 : -F, i.dir ? b.x1 - A - h2 : F, i.baixo ? b.y0 + A + h2 : -F, i.cima ? b.y1 - A - h2 : F);
+    const fora = rectP(i.esq ? b.x0 - A - h2 : -F, i.dir ? b.x1 + A + h2 : F, i.baixo ? b.y0 - A - h2 : -F, i.cima ? b.y1 + A + h2 : F);
+    const faixa = difP(fora, nucleo);
+    const res = [];
+    for (const f of fatias) {
+      if (!f.regiao?.length) continue;
+      const nuc = semMigalhas(interP(f.regiao, nucleo));
+      if (nuc.length) res.push({ ...f, regiao: nuc });
+      const banda = interP(f.regiao, faixa);
+      if (!banda.length) continue;
+      const n = Math.max(1, Math.ceil((f.z1 - f.z0) / opt.passoZ));
+      for (let k = 0; k < n; k++) {
+        const z0 = f.z0 + ((f.z1 - f.z0) * k) / n, z1 = f.z0 + ((f.z1 - f.z0) * (k + 1)) / n, zm = (z0 + z1) / 2;
+        const r = rectP(i.esq ? corte(b.x0, zm) + h2 : -F, i.dir ? corte(b.x1, zm) - h2 : F,
+          i.baixo ? corte(b.y0, zm) + h2 : -F, i.cima ? corte(b.y1, zm) - h2 : F);
+        const reg = semMigalhas(interP(banda, r));
+        if (reg.length) res.push({ ...f, z0, z1, regiao: reg });
+      }
+    }
+    out.set(b.id, res);
+  }
+  return out;
+}
+
+/** params.encaixes_blocos: liga/desliga os encaixes (por omissão, ligados). */
+export const comEncaixes = (params) => !(params?.encaixes_blocos === 0 || params?.encaixes_blocos === false || params?.encaixes_blocos === '0' || params?.encaixes_blocos === 'nao');
+
+/** Volume (mm³) de uma lista de fatias — para largar blocos que só apanham uma lasca da peça. */
+export function volumeFatias(fatias) {
+  let v = 0;
+  for (const f of fatias) for (const q of f.regiao ?? []) v += (C.Clipper.Area(q) / (ESC * ESC)) * (f.z1 - f.z0);
+  return Math.abs(v);
+}
+export const VOLUME_MIN = 30;   // mm³: menos do que isto não vale um ficheiro (é uma lasca do canto)

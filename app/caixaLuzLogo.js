@@ -20,7 +20,7 @@
  */
 import ClipperLib from 'clipper-lib';
 import { construirPecas, fatiasParaTriangulos, limparPequenos } from './vetorGeom.js';
-import { planoDivisao, fatiasNoBloco } from './divisaoBlocos.js';
+import { planoDivisao, fatiasNoBloco, zonasComEncaixes, fatiasNaZona, paredesComDentes, comEncaixes, volumeFatias, VOLUME_MIN } from './divisaoBlocos.js';
 
 const ESC = 1000;
 const C = ClipperLib;
@@ -292,14 +292,23 @@ export function construirCaixaLuzLogo(vetor, params) {
     mesaX: geo.mesaXMm, mesaY: geo.mesaYMm, params,
   });
   if (divisao?.ativo) {
+    // Encaixes nas juntas (por omissão): rabos de andorinha na frente e na tampa, dentes a 45° nas
+    // paredes do corpo — sem peças de reforço por trás, que fariam sombra na frente.
+    const enc = comEncaixes(params);
+    divisao.encaixes = enc;
+    const zFrente = enc ? zonasComEncaixes(r.pecas[0]?.fatias[0]?.regiao ?? encaixe, divisao) : null;
+    const zTampa = enc && tampaF ? zonasComEncaixes(tampaF[0].regiao, divisao) : null;
+    const corpoDentes = enc ? paredesComDentes(corpoF, divisao) : null;
     divisao.blocos = divisao.blocos.map(b => {
-      const corpoB = fatiasNoBloco(corpoF, b);
-      const tampaB = tampaF ? fatiasNoBloco(tampaF, b) : [];
+      const lasca = (fs) => (volumeFatias(fs) < VOLUME_MIN ? [] : fs);
+      const corpoB = lasca(enc ? corpoDentes.get(b.id) : fatiasNoBloco(corpoF, b));
+      const tampaB = !tampaF ? [] : lasca(enc ? fatiasNaZona(tampaF, zTampa.get(b.id)) : fatiasNoBloco(tampaF, b));
       return {
         ...b,
         corpoTris: corpoB.length ? fatiasParaTriangulos(corpoB) : null,
         tampaTris: tampaB.length ? fatiasParaTriangulos(tampaB) : null,
-        pecas: r.pecas.map(pc => ({ ...pc, fatias: fatiasNoBloco(pc.fatias, b) })).filter(pc => pc.fatias.length),
+        pecas: r.pecas.map(pc => ({ ...pc, fatias: enc ? fatiasNaZona(pc.fatias, zFrente.get(b.id)) : fatiasNoBloco(pc.fatias, b) }))
+          .filter(pc => pc.fatias.length && volumeFatias(pc.fatias) >= 1),
       };
     }).filter(b => b.corpoTris || b.tampaTris || b.pecas.length);
     const grandes = divisao.blocos.filter(b => !b.cabe);
@@ -369,9 +378,16 @@ export function guiaCaixaLuzLogo(r, geo, formaTipo, divisao = null) {
     L.push('  cima para baixo (visto de frente). Cada ficheiro tem o nome do bloco (ex.: corpo_A1.stl).');
     for (const b of divisao.blocos) L.push(`  ${b.id.padEnd(4)}: ${fmt(b.w)} x ${fmt(b.h)} mm${b.cabe ? '' : '  (NAO CABE NA MESA!)'}`);
     L.push('  * Imprime todos os blocos de cada peça com o mesmo filamento e as mesmas definições.');
-    L.push('  * Cola primeiro os blocos do corpo uns aos outros (cianoacrilato ou cola de contacto),');
-    L.push('    numa superfície plana; depois os da frente, dentro do rebaixo, e por fim as cores.');
-    L.push('  * Uma tira de fita-cola transparente por trás das juntas da frente ajuda a alinhar.');
+    if (divisao.encaixes) {
+      L.push('  * As juntas encaixam: o corpo tem dentes em ziguezague na altura (encaixa-os');
+      L.push('    de cima para baixo) e a frente e a tampa têm rabos de andorinha (desliza a');
+      L.push('    patilha no entalhe do bloco ao lado). Folga 0,15 mm: se ficar apertado, lixa.');
+      L.push('  * Cola os blocos do corpo nos dentes (cianoacrilato), numa superfície plana;');
+      L.push('    depois os da frente (um ponto de cola nas patilhas), dentro do rebaixo, e as cores.');
+    } else {
+      L.push('  * Cola primeiro os blocos do corpo uns aos outros (cianoacrilato ou cola de contacto),');
+      L.push('    numa superfície plana; depois os da frente, dentro do rebaixo, e por fim as cores.');
+    }
   }
   if (r.avisos.length) L.push('', '  AVISOS:', ...r.avisos.map(a => `  ! ${a}`));
   L.push('', '  NOTA: peca nova — confirma o encaixe frente/corpo e a difusão da', '  luz antes de produzir em serie.', '', sep);

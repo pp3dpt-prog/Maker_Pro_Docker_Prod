@@ -11,7 +11,7 @@
  * diretamente da fita de neon, visível pela abertura do canal.
  */
 import ClipperLib from 'clipper-lib';
-import { planoDivisao, fatiasNoBloco } from './divisaoBlocos.js';
+import { planoDivisao, fatiasNoBloco, paredesComDentes, comEncaixes, volumeFatias, VOLUME_MIN } from './divisaoBlocos.js';
 import { fatiasParaTriangulos } from './vetorGeom.js';
 
 const ESC = 1000;
@@ -118,8 +118,11 @@ export function construirCaixaLuzNeon(vetor, parametros) {
   // Maior do que a mesa: divisão em blocos (app/divisaoBlocos.js), cortes sugeridos ou do cliente
   const divisao = planoDivisao({ fronteira: trilha, mesaX: p.mesa_x_mm, mesaY: p.mesa_y_mm, params: parametros });
   if (divisao?.ativo) {
+    // juntas com dentes a 45° na altura (alinham e dão área de cola), por omissão
+    divisao.encaixes = comEncaixes(parametros);
+    const dentes = divisao.encaixes ? paredesComDentes(fatias, divisao) : null;
     divisao.blocos = divisao.blocos
-      .map(b => { const fb = fatiasNoBloco(fatias, b); return { ...b, tris: fb.length ? fatiasParaTriangulos(fb) : null }; })
+      .map(b => { const fb = dentes ? dentes.get(b.id) : fatiasNoBloco(fatias, b); return { ...b, tris: fb.length && volumeFatias(fb) >= VOLUME_MIN ? fatiasParaTriangulos(fb) : null }; })
       .filter(b => b.tris);
     avisos.push(`Dividida em ${divisao.blocos.length} blocos (${divisao.blocos.map(b => b.id).join(', ')}) para caber na mesa de ${p.mesa_x_mm.toFixed(0)} × ${p.mesa_y_mm.toFixed(0)} mm.`);
     const grandes = divisao.blocos.filter(b => !b.cabe);
@@ -147,7 +150,9 @@ export function guiaCaixaLuzNeon(res) {
   if (res.divisao?.ativo) {
     L.push('', sep, '', '  DIVISAO EM BLOCOS:');
     L.push(`  ${res.divisao.blocos.length} blocos (canal_A1.stl, …) — colunas A, B… da esquerda para a direita,`);
-    L.push('  linhas 1, 2… de cima para baixo. Cola-os topo a topo (cianoacrilato) numa superfície plana.');
+    L.push(res.divisao.encaixes
+      ? '  linhas 1, 2… de cima para baixo. As juntas têm dentes em ziguezague: encaixa e cola (cianoacrilato).'
+      : '  linhas 1, 2… de cima para baixo. Cola-os topo a topo (cianoacrilato) numa superfície plana.');
     for (const b of res.divisao.blocos) L.push(`  ${b.id.padEnd(4)}: ${fmt(b.w)} x ${fmt(b.h)} mm${b.cabe ? '' : '  (NAO CABE NA MESA!)'}`);
   }
   L.push('', sep, '', '  MONTAGEM:');
