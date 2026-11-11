@@ -1,9 +1,10 @@
 altura_fixa = 3;
 
 // Barril: laterais em arco (elipse 13 × 16 mm cortada a ±13 mm), topo e fundo direitos.
+// orientacao = "Deitado": o mesmo barril rodado 90° (arcos em cima e em baixo, tampos dos lados).
 module corpo_2d() {
     offset(r = 1.5, $fn = 48) offset(delta = -1.5)
-        polygon([for (i = [0:26]) let(y = -13 + i) [13 * sqrt(1 - pow(y / 16, 2)), y], for (i = [0:26]) let(y = 13 - i) [-13 * sqrt(1 - pow(y / 16, 2)), y]]);
+        rotate(is_undef(orientacao) || orientacao != "Deitado" ? 0 : 90) polygon([for (i = [0:26]) let(y = -13 + i) [13 * sqrt(1 - pow(y / 16, 2)), y], for (i = [0:26]) let(y = 13 - i) [-13 * sqrt(1 - pow(y / 16, 2)), y]]);
 }
 
 module geometria_barril() {
