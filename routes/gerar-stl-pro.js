@@ -140,6 +140,18 @@ function sanitizeParams(raw) {
       out[key] = val ? 1 : 0;
     } else if (val === null) {
       // ignorar nulls
+    } else if (Array.isArray(val)) {
+      // Listas de números (p.ex. os módulos do organizador de gaveta: [[x, y, w, d, ...], ...]).
+      // Só números finitos e com limites de tamanho; scadVars escreve-as como listas SCAD.
+      const numOk = (x) => typeof x === 'number' && Number.isFinite(x) && Math.abs(x) <= 10000;
+      const plana = val.length <= 200 && val.every(numOk);
+      const lista = val.length <= 60 && val.every(x => Array.isArray(x) && x.length <= 10 && x.every(numOk));
+      if (!plana && !lista) {
+        const e = new Error(`Lista inválida em "${key}"`);
+        e.status = 400;
+        throw e;
+      }
+      out[key] = val;
     } else {
       const e = new Error(`Tipo inválido em "${key}"`);
       e.status = 400;
