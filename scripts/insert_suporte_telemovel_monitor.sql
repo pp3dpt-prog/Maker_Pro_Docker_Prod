@@ -1,0 +1,6 @@
+-- Suporte de telemóvel para debaixo do monitor (2026-11-11), em RASCUNHO, família 'suportes'.
+-- Aplicado em produção com verificação por MD5 (template em templates/suporte_telemovel_monitor.scad,
+-- md5 199b9b3795ed3eb839aeab71a7683850), copiando da suporte_bases_copos o plano e os preços.
+-- generation_schema: parâmetro escondido suporte = "telemovel_monitor" (o frontend usa-o para a
+-- pré-visualização ao vivo — lib/suporteTelemovel.ts).
+-- Para refazer o schema: SELECT generation_schema FROM prod_designs WHERE id = 'suporte_telemovel_monitor';
