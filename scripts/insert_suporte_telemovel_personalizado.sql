@@ -10,3 +10,8 @@
 --     tamanho_param_por_campo (lib/textFit.js)
 --   suporte = "telemovel_personalizado" (escondido) → pré-visualização ao vivo no frontend.
 -- Para refazer o schema: SELECT generation_schema FROM prod_designs WHERE id = 'suporte_telemovel_personalizado';
+-- 2026-11-12: generation_schema.preview_por_partes = true → a pré-visualização (gerar-stl-pro) gera
+--   cada peça em separado e junta os triângulos, em vez do modo "tudo" (o CGAL unia corpo +
+--   enchimentos + parafusos e com imagens passava de 90 s no Render, rente ao limite de 110 s).
+--   UPDATE prod_designs SET generation_schema = generation_schema || '{"preview_por_partes": true}'
+--   WHERE id = 'suporte_telemovel_personalizado';

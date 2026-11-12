@@ -21,6 +21,7 @@ import { aplicarAjusteTexto } from '../lib/textFit.js';
 import { aplicarLogo } from '../lib/logo.js';
 import { temLicencaComercial } from '../lib/licenca.js';
 import { scadVars } from '../lib/scad.js';
+import { lerStl, stlBinario } from '../app/ficheiros3d.js';
 
 // Jimp é CommonJS — compatível com ESM em Node 20
 import Jimp from 'jimp';
@@ -550,6 +551,47 @@ export async function gerarStlPro(req, res) {
     const stlPath  = path.join(TMP_DIR, `${jobId}.stl`);
     tempFiles.push(scadPath, stlPath);
 
+    // generation_schema.preview_por_partes (modelos multicor com peças embutidas, p.ex. o suporte
+    // de telemóvel personalizado): o modo "tudo" obriga o OpenSCAD a unir corpo + enchimentos +
+    // parafusos (o CGAL demora minutos com imagens, rentes às paredes do rebaixo). Para ver no
+    // browser não é preciso unir: gera cada peça (os mesmos modos do 3MF) e junta os triângulos.
+    const cfgMc = design.generation_schema?.multicor;
+    const pecasPreview = design.generation_schema?.preview_por_partes && Array.isArray(cfgMc?.partes)
+      ? [...cfgMc.partes.map(p => ({ modo: p.modo })), ...(Array.isArray(cfgMc.ficheiros_extra) ? cfgMc.ficheiros_extra.map(f => f.params || {}) : [])]
+      : null;
+
+    if (pecasPreview) {
+      const correr = async (extra, i) => {
+        const sp = path.join(TMP_DIR, `${jobId}_${i}.scad`), op = path.join(TMP_DIR, `${jobId}_${i}.stl`);
+        tempFiles.push(sp, op);
+        await fsp.writeFile(sp, buildScadContent({ ...params, ...extra }, fixedTemplate, qualityFn), 'utf8');
+        const c = spawn(OPENSCAD_BIN, ['-o', op, sp], { stdio: ['ignore', 'ignore', 'pipe'] });
+        let err = '';
+        c.stderr.on('data', (d) => { err += d.toString().slice(0, 4000); });
+        const t = setTimeout(() => c.kill('SIGKILL'), OPENSCAD_TIMEOUT_MS);
+        const code = await new Promise((resolve) => c.on('close', resolve));
+        clearTimeout(t);
+        if (code !== 0 || !fs.existsSync(op)) {
+          if (i === 0) throw Object.assign(new Error(err || 'OpenSCAD falhou'), { scad: true });
+          return [];                      // peça vazia (p.ex. sem texto no lábio)
+        }
+        return lerStl(await fsp.readFile(op));
+      };
+      let tris;
+      try {
+        // duas de cada vez (o corpo é a peça lenta; as outras correm ao lado)
+        tris = [];
+        for (let i = 0; i < pecasPreview.length; i += 2) {
+          tris.push(...await Promise.all(pecasPreview.slice(i, i + 2).map((e, k) => correr(e, i + k))));
+        }
+      } catch (e) {
+        console.error('OpenSCAD stderr:', e.message);
+        return res.status(500).json({ error: 'Falha ao gerar modelo 3D.', details: e.message });
+      }
+      const todos = [];
+      for (const t of tris) for (let k = 0; k < t.length; k++) todos.push(t[k]);
+      await fsp.writeFile(stlPath, stlBinario(todos, produtoId));
+    } else {
     await fsp.writeFile(scadPath, scadContent, 'utf8');
 
     const child = spawn(OPENSCAD_BIN, ['-o', stlPath, scadPath], {
@@ -566,6 +608,7 @@ export async function gerarStlPro(req, res) {
     if (exitCode !== 0) {
       console.error('OpenSCAD stderr:', stderr);
       return res.status(500).json({ error: 'Falha ao gerar modelo 3D.', details: stderr });
+    }
     }
 
     // ── 9. Upload STL ────────────────────────────────────────────────────
