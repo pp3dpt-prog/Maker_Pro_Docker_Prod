@@ -187,6 +187,19 @@ function _esc(z)   = let(v = z == "rampa" ? (is_undef(esc_texto_rampa) ? 1 : esc
 function _tem_img(z) = z == "rampa" ? (!is_undef(tem_rampa) && tem_rampa == true && !is_undef(rampa_pts) && len(rampa_pts) >= 3)
                                     : (!is_undef(tem_labio) && tem_labio == true && !is_undef(labio_pts) && len(labio_pts) >= 3);
 function _ativa(z) = _conteudo(z) == "Texto" ? len(_texto(z)) > 0 : _conteudo(z) == "Imagem" ? _tem_img(z) : false;
+
+// ── imagem com as cores próprias (cores_imagem_<zona> = "Cores da imagem"): uma peça por cor ──
+// Do servidor (lib/logo.js + lib/imagemCores.js): <zona>_c<i>_pts / <zona>_c<i>_paths, i = 1..6,
+// sem sobreposições entre cores; <zona>_pts passa a ser a união das cores (o rebaixo).
+// Modos "<zona>_c<i>" (enchimento da cor i) e "<zona>_c<i>_solta" (sem AMS, para colar).
+NC = 6;
+function _nz(v) = is_undef(v) ? [] : v;
+function _cores(z) = z == "rampa" ? (is_undef(cores_imagem_rampa) ? "Uma cor" : cores_imagem_rampa) : (is_undef(cores_imagem_labio) ? "Uma cor" : cores_imagem_labio);
+function _multi(z) = _conteudo(z) == "Imagem" && _cores(z) == "Cores da imagem";
+function _cpts(z, i)   = (z == "rampa" ? [_nz(rampa_c1_pts), _nz(rampa_c2_pts), _nz(rampa_c3_pts), _nz(rampa_c4_pts), _nz(rampa_c5_pts), _nz(rampa_c6_pts)] : [_nz(labio_c1_pts), _nz(labio_c2_pts), _nz(labio_c3_pts), _nz(labio_c4_pts), _nz(labio_c5_pts), _nz(labio_c6_pts)])[i - 1];
+function _cpaths(z, i) = (z == "rampa" ? [_nz(rampa_c1_paths), _nz(rampa_c2_paths), _nz(rampa_c3_paths), _nz(rampa_c4_paths), _nz(rampa_c5_paths), _nz(rampa_c6_paths)] : [_nz(labio_c1_paths), _nz(labio_c2_paths), _nz(labio_c3_paths), _nz(labio_c4_paths), _nz(labio_c5_paths), _nz(labio_c6_paths)])[i - 1];
+function _tem_cor(z, i) = _multi(z) && _tem_img(z) && len(_cpts(z, i)) >= 3;
+function _modo_cor() = let(l = [for (z = ["rampa", "labio"], i = [1 : NC], s = [false, true]) if (_modo() == str(z, "_c", i, s ? "_solta" : "")) [z, i, s]]) len(l) > 0 ? l[0] : undef;
 MARG = 4;                                                            // margem às arestas da largura (mm)
 MV = 1;                                                              // margem às arestas em altura (mm)
 
@@ -201,7 +214,7 @@ function _M(z) = let(a = _a(), c = cos(a), s = sin(a))
     ? [[0, c, s, -_sc() * c], [0, s, -c, -_sc() * s], [-1, 0, 0, _W() / 2], [0, 0, 0, 1]]
     : [[0, 1, 0, (_tp() + _ll()) / 2], [0, 0, -1, 0], [-1, 0, 0, _W() / 2], [0, 0, 0, 1]];
 
-module conteudo2d(z) {
+module conteudo2d(z, i = 0) {
     r = _zona(z);
     intersection() {
         translate(r[0]) square(r[1] - r[0]);
@@ -209,18 +222,20 @@ module conteudo2d(z) {
             scale(_esc(z)) offset(delta = 0.01)
                 text(_texto(z), size = _tam(z), font = _fonte(), halign = "center", valign = "center", $fn = 16);
         else if (_conteudo(z) == "Imagem" && _tem_img(z)) {
-            if (z == "rampa") polygon(points = rampa_pts, paths = rampa_paths);
+            if (i > 0) polygon(points = _cpts(z, i), paths = _cpaths(z, i));
+            else if (z == "rampa") polygon(points = rampa_pts, paths = rampa_paths);
             else polygon(points = labio_pts, paths = labio_paths);
         }
     }
 }
-module na_face(z, w0, w1) {
-    multmatrix(_M(z)) translate([0, 0, w0]) linear_extrude(height = w1 - w0) conteudo2d(z);
+module na_face(z, w0, w1, i = 0) {
+    multmatrix(_M(z)) translate([0, 0, w0]) linear_extrude(height = w1 - w0) conteudo2d(z, i);
 }
-module enchimento(z) { if (_ativa(z)) na_face(z, -_dp(), 0); }
+module enchimento(z) { if (_ativa(z) && !_multi(z)) na_face(z, -_dp(), 0); }
+module enchimento_cor(z, i) { if (_tem_cor(z, i)) na_face(z, -_dp(), 0, i); }
 
 function _fe() = max(0, min(0.5, is_undef(folga_embutido) ? 0.15 : folga_embutido));
-module solta(z) { if (_ativa(z)) linear_extrude(height = _dp()) offset(delta = -_fe()) conteudo2d(z); }
+module solta(z, i = 0) { if (i > 0 ? _tem_cor(z, i) : _ativa(z) && !_multi(z)) linear_extrude(height = _dp()) offset(delta = -_fe()) conteudo2d(z, i); }
 
 module corpo() {
     difference() {
@@ -237,9 +252,11 @@ else if (_modo() == "rampa") enchimento("rampa");
 else if (_modo() == "labio") enchimento("labio");
 else if (_modo() == "rampa_solta") solta("rampa");
 else if (_modo() == "labio_solta") solta("labio");
+else if (!is_undef(_modo_cor())) { mc = _modo_cor(); if (mc[2]) solta(mc[0], mc[1]); else enchimento_cor(mc[0], mc[1]); }
 else {
     color(is_undef(cor_suporte) ? "#111111" : cor_suporte) corpo();
     color(is_undef(cor_parafusos) ? "#111111" : cor_parafusos) parafusos_ao_lado();
     color(is_undef(cor_rampa) ? "#FFFFFF" : cor_rampa) enchimento("rampa");
     color(is_undef(cor_labio) ? "#FFFFFF" : cor_labio) enchimento("labio");
+    for (z = ["rampa", "labio"], i = [1 : NC]) color(["#E11D48", "#2563EB", "#16A34A", "#F59E0B", "#7C3AED", "#0EA5E9"][i - 1]) enchimento_cor(z, i);
 }

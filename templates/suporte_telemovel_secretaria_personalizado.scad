@@ -72,6 +72,19 @@ function _tem_img(z) = z == "encosto" ? (!is_undef(tem_encosto) && tem_encosto =
                                       : (!is_undef(tem_labio) && tem_labio == true && !is_undef(labio_pts) && len(labio_pts) >= 3);
 function _ativa(z) = _conteudo(z) == "Texto" ? len(_texto(z)) > 0 : _conteudo(z) == "Imagem" ? _tem_img(z) : false;
 
+// ── imagem com as cores próprias (cores_imagem_<zona> = "Cores da imagem"): uma peça por cor ──
+// Do servidor (lib/logo.js + lib/imagemCores.js): <zona>_c<i>_pts / <zona>_c<i>_paths, i = 1..6,
+// sem sobreposições entre cores; <zona>_pts passa a ser a união das cores (o rebaixo).
+// Modos "<zona>_c<i>" (enchimento da cor i) e "<zona>_c<i>_solta" (sem AMS, para colar).
+NC = 6;
+function _nz(v) = is_undef(v) ? [] : v;
+function _cores(z) = z == "encosto" ? (is_undef(cores_imagem_encosto) ? "Uma cor" : cores_imagem_encosto) : (is_undef(cores_imagem_labio) ? "Uma cor" : cores_imagem_labio);
+function _multi(z) = _conteudo(z) == "Imagem" && _cores(z) == "Cores da imagem";
+function _cpts(z, i)   = (z == "encosto" ? [_nz(encosto_c1_pts), _nz(encosto_c2_pts), _nz(encosto_c3_pts), _nz(encosto_c4_pts), _nz(encosto_c5_pts), _nz(encosto_c6_pts)] : [_nz(labio_c1_pts), _nz(labio_c2_pts), _nz(labio_c3_pts), _nz(labio_c4_pts), _nz(labio_c5_pts), _nz(labio_c6_pts)])[i - 1];
+function _cpaths(z, i) = (z == "encosto" ? [_nz(encosto_c1_paths), _nz(encosto_c2_paths), _nz(encosto_c3_paths), _nz(encosto_c4_paths), _nz(encosto_c5_paths), _nz(encosto_c6_paths)] : [_nz(labio_c1_paths), _nz(labio_c2_paths), _nz(labio_c3_paths), _nz(labio_c4_paths), _nz(labio_c5_paths), _nz(labio_c6_paths)])[i - 1];
+function _tem_cor(z, i) = _multi(z) && _tem_img(z) && len(_cpts(z, i)) >= 3;
+function _modo_cor() = let(l = [for (z = ["encosto", "labio"], i = [1 : NC], s = [false, true]) if (_modo() == str(z, "_c", i, s ? "_solta" : "")) [z, i, s]]) len(l) > 0 ? l[0] : undef;
+
 function _sc() = _Le() * max(0, min(100, is_undef(posicao_encosto) ? 70 : posicao_encosto)) / 100;
 // face → peça: (u, v, w), u = leitura, v = para cima, w para fora da face (rotação própria)
 function _M(z) = let(a = _a(), c = cos(a), s = sin(a), W = _W())
@@ -90,23 +103,25 @@ module zona(z) {
     }
 }
 
-module conteudo2d(z) {
+module conteudo2d(z, i = 0) {
     intersection() {
         zona(z);
         if (_conteudo(z) == "Texto")
             scale(_esc(z)) offset(delta = 0.01)
                 text(_texto(z), size = _tam(z), font = _fonte(), halign = "center", valign = "center", $fn = 16);
         else if (_conteudo(z) == "Imagem" && _tem_img(z)) {
-            if (z == "encosto") polygon(points = encosto_pts, paths = encosto_paths);
+            if (i > 0) polygon(points = _cpts(z, i), paths = _cpaths(z, i));
+            else if (z == "encosto") polygon(points = encosto_pts, paths = encosto_paths);
             else polygon(points = labio_pts, paths = labio_paths);
         }
     }
 }
-module na_face(z, w0, w1) { multmatrix(_M(z)) translate([0, 0, w0]) linear_extrude(height = w1 - w0) conteudo2d(z); }
-module enchimento(z) { if (_ativa(z)) na_face(z, -_dp(), 0); }
+module na_face(z, w0, w1, i = 0) { multmatrix(_M(z)) translate([0, 0, w0]) linear_extrude(height = w1 - w0) conteudo2d(z, i); }
+module enchimento(z) { if (_ativa(z) && !_multi(z)) na_face(z, -_dp(), 0); }
+module enchimento_cor(z, i) { if (_tem_cor(z, i)) na_face(z, -_dp(), 0, i); }
 
 function _fe() = max(0, min(0.5, is_undef(folga_embutido) ? 0.15 : folga_embutido));
-module solta(z) { if (_ativa(z)) linear_extrude(height = _dp()) offset(delta = -_fe()) conteudo2d(z); }
+module solta(z, i = 0) { if (i > 0 ? _tem_cor(z, i) : _ativa(z) && !_multi(z)) linear_extrude(height = _dp()) offset(delta = -_fe()) conteudo2d(z, i); }
 
 module corpo() {
     difference() {
@@ -120,8 +135,10 @@ else if (_modo() == "encosto") enchimento("encosto");
 else if (_modo() == "labio") enchimento("labio");
 else if (_modo() == "encosto_solta") solta("encosto");
 else if (_modo() == "labio_solta") solta("labio");
+else if (!is_undef(_modo_cor())) { mc = _modo_cor(); if (mc[2]) solta(mc[0], mc[1]); else enchimento_cor(mc[0], mc[1]); }
 else {
     color(is_undef(cor_suporte) ? "#111111" : cor_suporte) corpo();
     color(is_undef(cor_encosto) ? "#FFFFFF" : cor_encosto) enchimento("encosto");
     color(is_undef(cor_labio) ? "#FFFFFF" : cor_labio) enchimento("labio");
+    for (z = ["encosto", "labio"], i = [1 : NC]) color(["#E11D48", "#2563EB", "#16A34A", "#F59E0B", "#7C3AED", "#0EA5E9"][i - 1]) enchimento_cor(z, i);
 }

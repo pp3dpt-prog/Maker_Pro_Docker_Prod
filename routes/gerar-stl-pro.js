@@ -6,6 +6,7 @@
  * Para HueForge devolve também txtUrl com o guia de mudança de filamento.
  */
 
+import { parteAtiva } from '../lib/partes.js';
 import { tipoDesign } from '../lib/tipoDesign.js';
 import { GERADORES_ILUMINARIA, gerarIluminaria } from '../app/iluminarias.js';
 import fs   from 'fs';
@@ -557,7 +558,8 @@ export async function gerarStlPro(req, res) {
     // browser não é preciso unir: gera cada peça (os mesmos modos do 3MF) e junta os triângulos.
     const cfgMc = design.generation_schema?.multicor;
     const pecasPreview = design.generation_schema?.preview_por_partes && Array.isArray(cfgMc?.partes)
-      ? [...cfgMc.partes.map(p => ({ modo: p.modo })), ...(Array.isArray(cfgMc.ficheiros_extra) ? cfgMc.ficheiros_extra.map(f => f.params || {}) : [])]
+      ? [...cfgMc.partes.filter((p, i) => i === 0 || parteAtiva(p, params)).map(p => ({ modo: p.modo })),
+         ...(Array.isArray(cfgMc.ficheiros_extra) ? cfgMc.ficheiros_extra.filter(f => parteAtiva(f, params)).map(f => f.params || {}) : [])]
       : null;
 
     if (pecasPreview) {

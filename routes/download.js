@@ -1,3 +1,4 @@
+import { parteAtiva, corParte } from '../lib/partes.js';
 import fs from 'fs';
 import fsp from 'fs/promises';
 import path from 'path';
@@ -135,6 +136,9 @@ async function uploadToStorage(filePath, storagePath, mimeType) {
  * Sem AMS: um STL único (modo = "tudo") + LEIA-ME com a camada da troca de cor — ou, com
  * "sem_ams_ficheiros", peças separadas para imprimir cada uma na sua cor e colar.
  * Partes vazias (p.ex. sem texto) não geram ficheiro e são saltadas; a 1.ª é obrigatória.
+ * Partes com "so_quando" / "min_param" só correm quando se aplicam (lib/partes.js); "cor_auto_param"
+ * dá a cor quando o cor_param está vazio (p.ex. a cor detetada na imagem, <zona>_c<i>_hex);
+ * "agrupar_por_cor": true junta numa só peça do 3MF as partes com a mesma cor.
  */
 /**
  * Ficheiros separados (generation_schema.ficheiros ou multicor.ficheiros_extra): o template corre
@@ -146,7 +150,7 @@ async function uploadToStorage(filePath, storagePath, mimeType) {
 export async function gerarFicheirosSeparados({ design, params, base, lista }) {
   const out = [];
   // "so_quando": { "<param>": "<valor>" } (opcional) — o ficheiro só sai com esse valor
-  const ativos = lista.filter(f => !f.so_quando || Object.entries(f.so_quando).every(([k, v]) => String(params[k] ?? '') === String(v)));
+  const ativos = lista.filter(f => parteAtiva(f, params));
   for (const [i, f] of ativos.entries()) {
     const nome = String(f.nome || `parte_${i + 1}.stl`).replace(/[^\w.-]+/g, '_');
     const stlPath = `${base}_f${i}.stl`;
@@ -169,7 +173,8 @@ export function semAms(cfg, params) {
 
 export async function gerarMulticor({ design, params, base, nomeBase }) {
   const cfg = design.generation_schema.multicor;
-  const partesCfg = Array.isArray(cfg.partes) ? cfg.partes : [];
+  // partes com so_quando / min_param (lib/partes.js) só correm quando se aplicam
+  const partesCfg = (Array.isArray(cfg.partes) ? cfg.partes : []).filter((p, i) => i === 0 || parteAtiva(p, params));
 
   if (semAms(cfg, params) && Array.isArray(cfg.sem_ams_ficheiros) && cfg.sem_ams_ficheiros.length) {
     // Sem AMS, peças separadas para imprimir cada uma na sua cor e colar (p.ex. a auréola do anjo):
@@ -188,7 +193,7 @@ export async function gerarMulticor({ design, params, base, nomeBase }) {
     await gerarSTL({ scadTemplate: design.scad_template, params: { ...params, modo: 'tudo' }, outFile: stlPath });
     // altura da troca de cor: fixa (troca_cor_mm) ou lida de um parâmetro (troca_cor_param, p.ex. a espessura da base)
     const z = Number(cfg.troca_cor_param ? params[cfg.troca_cor_param] : cfg.troca_cor_mm);
-    const cores = partesCfg.map(p => `  • ${p.nome}: ${String(params[p.cor_param] ?? '').toUpperCase()}`);
+    const cores = partesCfg.map(p => `  • ${p.nome}: ${corParte(p, params).toUpperCase()}`);
     // cfg.texto_sem_ams (opcional): linhas próprias do modelo, quando não há troca de cor por
     // altura (p.ex. nome flexível: as cores são por letra, não por camada).
     const proprias = Array.isArray(cfg.texto_sem_ams) ? cfg.texto_sem_ams.map(String) : null;
@@ -228,7 +233,10 @@ export async function gerarMulticor({ design, params, base, nomeBase }) {
     fsp.unlink(stlPath).catch(() => {});
     fsp.unlink(stlPath.replace('.stl', '.scad')).catch(() => {});
     if (!tri.length) continue;
-    const cor = /^#[0-9a-f]{6}$/i.test(String(params[p.cor_param])) ? String(params[p.cor_param]) : '#FFFFFF';
+    const cor = corParte(p, params);
+    // agrupar_por_cor: partes com a mesma cor juntam-se numa só peça (um filamento do AMS)
+    const igual = cfg.agrupar_por_cor ? partes.find(q => q.cor.toUpperCase() === cor.toUpperCase()) : null;
+    if (igual) { for (let k = 0; k < tri.length; k++) igual.tri.push(tri[k]); continue; }
     partes.push({ nome: p.nome, cor, tri });
   }
   const p3mf = `${base}.3mf`;

@@ -71,6 +71,19 @@ function _tem_img(z) = z == "frente" ? (!is_undef(tem_frente) && tem_frente == t
                                      : (!is_undef(tem_inclinada) && tem_inclinada == true && !is_undef(inclinada_pts) && len(inclinada_pts) >= 3);
 function _ativa(z) = _conteudo(z) == "Texto" ? len(_texto(z)) > 0 : _conteudo(z) == "Imagem" ? _tem_img(z) : false;
 
+// ── imagem com as cores próprias (cores_imagem_<zona> = "Cores da imagem"): uma peça por cor ──
+// Do servidor (lib/logo.js + lib/imagemCores.js): <zona>_c<i>_pts / <zona>_c<i>_paths, i = 1..6,
+// sem sobreposições entre cores; <zona>_pts passa a ser a união das cores (o rebaixo).
+// Modos "<zona>_c<i>" (enchimento da cor i) e "<zona>_c<i>_solta" (sem AMS, para colar).
+NC = 6;
+function _nz(v) = is_undef(v) ? [] : v;
+function _cores(z) = z == "frente" ? (is_undef(cores_imagem_frente) ? "Uma cor" : cores_imagem_frente) : (is_undef(cores_imagem_inclinada) ? "Uma cor" : cores_imagem_inclinada);
+function _multi(z) = _conteudo(z) == "Imagem" && _cores(z) == "Cores da imagem";
+function _cpts(z, i)   = (z == "frente" ? [_nz(frente_c1_pts), _nz(frente_c2_pts), _nz(frente_c3_pts), _nz(frente_c4_pts), _nz(frente_c5_pts), _nz(frente_c6_pts)] : [_nz(inclinada_c1_pts), _nz(inclinada_c2_pts), _nz(inclinada_c3_pts), _nz(inclinada_c4_pts), _nz(inclinada_c5_pts), _nz(inclinada_c6_pts)])[i - 1];
+function _cpaths(z, i) = (z == "frente" ? [_nz(frente_c1_paths), _nz(frente_c2_paths), _nz(frente_c3_paths), _nz(frente_c4_paths), _nz(frente_c5_paths), _nz(frente_c6_paths)] : [_nz(inclinada_c1_paths), _nz(inclinada_c2_paths), _nz(inclinada_c3_paths), _nz(inclinada_c4_paths), _nz(inclinada_c5_paths), _nz(inclinada_c6_paths)])[i - 1];
+function _tem_cor(z, i) = _multi(z) && _tem_img(z) && len(_cpts(z, i)) >= 3;
+function _modo_cor() = let(l = [for (z = ["frente", "inclinada"], i = [1 : NC], s = [false, true]) if (_modo() == str(z, "_c", i, s ? "_solta" : "")) [z, i, s]]) len(l) > 0 ? l[0] : undef;
+
 function _Li() = norm([_xf(), _H() - _Hf()]);                        // comprimento da face inclinada
 function _Vi() = [_xf(), _H() - _Hf()] / _Li();
 // face → peça: (u, v, w), u = leitura, v = para cima, w para fora da face (rotação própria)
@@ -84,23 +97,25 @@ module zona(z) {
     translate([-(W / 2 - MARG), -(h / 2 - MV)]) square([W - 2 * MARG, h - 2 * MV]);
 }
 
-module conteudo2d(z) {
+module conteudo2d(z, i = 0) {
     intersection() {
         zona(z);
         if (_conteudo(z) == "Texto")
             scale(_esc(z)) offset(delta = 0.01)
                 text(_texto(z), size = _tam(z), font = _fonte(), halign = "center", valign = "center", $fn = 16);
         else if (_conteudo(z) == "Imagem" && _tem_img(z)) {
-            if (z == "frente") polygon(points = frente_pts, paths = frente_paths);
+            if (i > 0) polygon(points = _cpts(z, i), paths = _cpaths(z, i));
+            else if (z == "frente") polygon(points = frente_pts, paths = frente_paths);
             else polygon(points = inclinada_pts, paths = inclinada_paths);
         }
     }
 }
-module na_face(z, w0, w1) { multmatrix(_M(z)) translate([0, 0, w0]) linear_extrude(height = w1 - w0) conteudo2d(z); }
-module enchimento(z) { if (_ativa(z)) na_face(z, -_dp(), 0); }
+module na_face(z, w0, w1, i = 0) { multmatrix(_M(z)) translate([0, 0, w0]) linear_extrude(height = w1 - w0) conteudo2d(z, i); }
+module enchimento(z) { if (_ativa(z) && !_multi(z)) na_face(z, -_dp(), 0); }
+module enchimento_cor(z, i) { if (_tem_cor(z, i)) na_face(z, -_dp(), 0, i); }
 
 function _fe() = max(0, min(0.5, is_undef(folga_embutido) ? 0.15 : folga_embutido));
-module solta(z) { if (_ativa(z)) linear_extrude(height = _dp()) offset(delta = -_fe()) conteudo2d(z); }
+module solta(z, i = 0) { if (i > 0 ? _tem_cor(z, i) : _ativa(z) && !_multi(z)) linear_extrude(height = _dp()) offset(delta = -_fe()) conteudo2d(z, i); }
 
 module corpo() {
     difference() {
@@ -114,8 +129,10 @@ else if (_modo() == "frente") enchimento("frente");
 else if (_modo() == "inclinada") enchimento("inclinada");
 else if (_modo() == "frente_solta") solta("frente");
 else if (_modo() == "inclinada_solta") solta("inclinada");
+else if (!is_undef(_modo_cor())) { mc = _modo_cor(); if (mc[2]) solta(mc[0], mc[1]); else enchimento_cor(mc[0], mc[1]); }
 else {
     color(is_undef(cor_suporte) ? "#111111" : cor_suporte) corpo();
     color(is_undef(cor_frente) ? "#FFFFFF" : cor_frente) enchimento("frente");
     color(is_undef(cor_inclinada) ? "#FFFFFF" : cor_inclinada) enchimento("inclinada");
+    for (z = ["frente", "inclinada"], i = [1 : NC]) color(["#E11D48", "#2563EB", "#16A34A", "#F59E0B", "#7C3AED", "#0EA5E9"][i - 1]) enchimento_cor(z, i);
 }
