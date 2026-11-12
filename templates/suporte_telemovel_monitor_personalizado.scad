@@ -5,6 +5,8 @@
 // cor. Sai em 3MF (generation_schema.multicor): o template corre uma vez por parte (modo):
 //   "corpo"      suporte com os rebaixos              "parafusos"  os parafusos
 //   "rampa"      enchimento da frente da rampa        "labio"      enchimento da frente do lábio
+//   "rampa_solta" / "labio_solta"  sem AMS: o enchimento deitado na mesa, um pouco mais pequeno
+//                (folga_embutido, omissão 0,15 mm) para imprimir noutra cor e colar no rebaixo
 // (sem modo: tudo, com cores — só para ver no OpenSCAD). Os enchimentos ficam rentes à face e
 // tocam-se com o corpo sem se sobreporem.
 //
@@ -217,6 +219,9 @@ module na_face(z, w0, w1) {
 }
 module enchimento(z) { if (_ativa(z)) na_face(z, -_dp(), 0); }
 
+function _fe() = max(0, min(0.5, is_undef(folga_embutido) ? 0.15 : folga_embutido));
+module solta(z) { if (_ativa(z)) linear_extrude(height = _dp()) offset(delta = -_fe()) conteudo2d(z); }
+
 module corpo() {
     difference() {
         suporte();
@@ -230,6 +235,8 @@ if (_modo() == "corpo") corpo();
 else if (_modo() == "parafusos") parafusos_ao_lado();
 else if (_modo() == "rampa") enchimento("rampa");
 else if (_modo() == "labio") enchimento("labio");
+else if (_modo() == "rampa_solta") solta("rampa");
+else if (_modo() == "labio_solta") solta("labio");
 else {
     color(is_undef(cor_suporte) ? "#111111" : cor_suporte) corpo();
     color(is_undef(cor_parafusos) ? "#111111" : cor_parafusos) parafusos_ao_lado();

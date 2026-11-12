@@ -15,3 +15,8 @@
 --   enchimentos + parafusos e com imagens passava de 90 s no Render, rente ao limite de 110 s).
 --   UPDATE prod_designs SET generation_schema = generation_schema || '{"preview_por_partes": true}'
 --   WHERE id = 'suporte_telemovel_personalizado';
+-- 2026-11-12: parâmetro "impressao" (AMS (3MF multicor) / Sem AMS (STL, peças para colar)) +
+--   multicor.param_impressao / sem_ams_ficheiros / texto_sem_ams e folga_embutido (0,15 mm).
+--   Sem AMS: suporte.stl (rebaixos), rampa/labio_peca_para_colar.stl (modos rampa_solta /
+--   labio_solta, deitadas e encolhidas pela folga), parafusos.stl e LEIA-ME. Template md5
+--   c4c7f7d9a7e1a5398608a24663b9f7c4 (aplicado com replace() e verificado por MD5).
