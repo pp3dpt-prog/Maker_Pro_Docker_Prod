@@ -1,5 +1,5 @@
 -- Marcadores de copo — bailarina: generation_schema (2026-11-14).
--- A linha (com o template templates/marcador_copo_bailarina.scad, md5 c2ef49ed4ffbc16ff702907a7c4e9b2a)
+-- A linha (com o template templates/marcador_copo_bailarina.scad, md5 27e0aa11dbb3ae28d716fefe51a02722)
 -- foi criada em rascunho na família Decoração, com as mesmas flags dos outros marcadores
 -- (acesso gratuito, 1 crédito, CC-BY-NC). Silhueta desenhada de raiz (não é cópia de nenhuma imagem).
 -- Para publicar: miniatura (Admin → Miniaturas) e estado = 'ativo'.
@@ -43,7 +43,7 @@ params as (
     'cor_nome',   jsonb_build_object('ui', jsonb_build_object('label','Cor do nome','widget','color','paleta',(select p from pal),
                     'visible_when', jsonb_build_object('palco', jsonb_build_object('eq','Nome em relevo'))), 'order',22,'default','#F472B6'),
     'info_marcadores', jsonb_build_object('ui', jsonb_build_object('widget','info','text',
-       '🩰 Marcadores de copo em forma de bailarina: a mão erguida curva-se num gancho que passa por cima da borda do copo, com uma perna curta por dentro a apertar o vidro — ela fica a "segurar" o copo, espetada para fora. Aos pés, um palco com o nome em relevo noutra cor, ou liso com um rebaixo para colar uma etiqueta (fita de etiquetadora de 6, 9 ou 12 mm, ou papel cortado à medida) — dá para imprimir um lote sem nomes e escrevê-los na hora. Imprime-se deitada, sem suportes. Mede a espessura do vidro na borda; em taças com barriga aumenta o afastamento.'),
+       '🩰 Marcadores de copo em forma de bailarina: a mão erguida curva-se num gancho que passa por cima da borda do copo, com uma perna curta por dentro a apertar o vidro — ela fica a "segurar" o copo, espetada para fora. A perna de fora do gancho desce até ao palco, como uma barra de ballet, e deixa a peça rija. Aos pés, um palco com o nome em relevo noutra cor, ou liso com um rebaixo para colar uma etiqueta (fita de etiquetadora de 6, 9 ou 12 mm, ou papel cortado à medida) — dá para imprimir um lote sem nomes e escrevê-los na hora. Imprime-se deitada, sem suportes. Mede a espessura do vidro na borda; em taças com barriga aumenta o afastamento.'),
        'order',99,'default',null)
   ) || (select j from nomes) j
 )

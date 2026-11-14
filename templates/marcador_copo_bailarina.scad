@@ -2,6 +2,7 @@
 // Silhueta de uma bailarina (desenho original) com o braço erguido: a mão curva-se num gancho
 // em "U" que passa por cima da borda do copo, com uma perna curta por dentro a apertar o vidro,
 // como se ela segurasse o copo. A figura fica espetada para fora do copo, como uma barbatana.
+// A perna de fora do gancho desce até ao palco, como uma barra de ballet, e reforça a peça.
 // Aos pés, um palco com o nome em relevo (noutra cor) ou liso com um rebaixo para colar uma
 // etiqueta (fita de etiquetadora, para as emergências). Até 12 de uma vez.
 //
@@ -60,41 +61,49 @@ function _hp() = _etiq() ? _fita() + 3 : _tam()*1.3 + 3;   // altura do palco
 
 // ---------- silhueta (desenho nominal: pés em y = 0, borda do copo em y = 62, vidro à direita de x = 0) ----------
 module osso(a, b, ra, rb) { hull() { translate(a) circle(ra); translate(b) circle(rb == undef ? ra : rb); } }
+// membro com várias articulações e raios a afinar: pts = [[x, y, r], ...]
+module membro(pts) { for (i = [0:len(pts)-2]) osso([pts[i][0], pts[i][1]], [pts[i+1][0], pts[i+1][1]], pts[i][2], pts[i+1][2]); }
 
-module saia2d() {
-    // saia rodada, levantada pela mão esquerda, com a bainha ondulada
-    offset(r=0.8) offset(r=-0.8) polygon([
-        [-11.0, 31.5], [-15.6, 31.5], [-19.5, 28.5], [-24.5, 27.6], [-29.0, 29.2], [-27.6, 25.2],
-        [-25.6, 22.6], [-23.4, 21.4], [-21.4, 19.6], [-18.6, 19.2], [-16.2, 18.0], [-13.4, 18.6],
-        [-10.6, 17.8], [-8.2, 19.4], [-6.6, 19.0], [-7.4, 22.6], [-9.0, 27.0]]);
-}
+// curva fechada suave (Catmull-Rom) a passar pelos pontos
+function _cr(p0, p1, p2, p3, t) = 0.5 * ((2*p1) + (-p0 + p2)*t + (2*p0 - 5*p1 + 4*p2 - p3)*t*t + (-p0 + 3*p1 - 3*p2 + p3)*t*t*t);
+function suave(pts, n=8) = let(L = len(pts))
+    [for (i = [0:L-1]) for (j = [0:n-1])
+        _cr(pts[(i-1+L)%L], pts[i], pts[(i+1)%L], pts[(i+2)%L], j/n)];
+
+TRONCO = [   // costas à esquerda, peito à direita (ligeiramente de perfil, peito para o copo)
+    [-11.4, 46.0], [-9.6, 44.6], [-8.9, 42.4], [-8.7, 39.8], [-9.6, 37.0], [-10.1, 35.0],
+    [-10.6, 33.6], [-13.2, 33.6], [-13.4, 35.0], [-14.2, 37.6], [-14.9, 40.6], [-14.7, 43.4],
+    [-12.8, 45.0], [-12.4, 46.0]];
+
+SAIA = [     // saia rodada, a ponta esquerda levantada pela mão; bainha com folhos
+    [-10.4, 35.0], [-8.6, 31.6], [-6.4, 28.2], [-5.0, 25.4], [-6.8, 25.0], [-8.2, 24.0],
+    [-10.2, 24.8], [-12.4, 23.6], [-14.6, 24.6], [-16.8, 23.8], [-18.8, 25.2], [-21.0, 25.0],
+    [-23.0, 27.0], [-25.4, 27.6], [-27.6, 30.4], [-28.8, 33.4], [-26.4, 33.2], [-23.6, 32.0],
+    [-20.4, 33.0], [-17.2, 33.6], [-13.8, 35.2]];
 
 module figura2d() {
-    offset(r=-0.6) offset(r=0.6) union() {
-        translate([-12.2, 50.2]) circle(3.4);                       // cabeça
-        osso([-14.6, 51.6], [-16.2, 50.4], 1.9, 1.3);                // carrapito
-        osso([-11.6, 46.0], [-11.8, 43.0], 1.2);                     // pescoço
-        osso([-11.6, 40.4], [-12.6, 33.0], 3.4, 2.2);                // tronco
-        osso([-12.6, 33.0], [-12.0, 30.6], 2.2, 2.6);                // cintura
-        osso([-9.4, 42.2], [-14.8, 41.6], 1.6);                      // ombros
-        // braço erguido: ombro → cotovelo → mão (vertical junto ao vidro)
-        osso([-9.4, 42.2], [-5.2, 52.0], 1.5, 1.25);
-        osso([-5.2, 52.0], [-1.1, 58.0], 1.25, 1.1);
-        osso([-1.1, 58.0], [0, 62], 1.1);
-        // braço de baixo, a segurar a ponta da saia
-        osso([-14.8, 41.6], [-20.6, 35.6], 1.4, 1.15);
-        osso([-20.6, 35.6], [-27.6, 28.8], 1.15, 0.95);
-        osso([-27.6, 28.8], [-29.2, 29.6], 0.95, 0.8);               // dedos
-        saia2d();
-        // pernas: a da frente direita, a de trás cruzada, em bicos de pés com salto
-        osso([-11.2, 19.0], [-9.6, 9.0], 1.9, 1.3);
-        osso([-9.6, 9.0], [-9.4, 3.2], 1.3, 0.85);
-        osso([-9.4, 3.2], [-6.4, 0.6], 0.85, 0.6);                   // pé
-        osso([-9.6, 2.6], [-9.9, 0.4], 0.45);                        // salto
-        osso([-14.4, 19.0], [-15.6, 9.4], 1.9, 1.3);
-        osso([-15.6, 9.4], [-16.8, 3.2], 1.3, 0.85);
-        osso([-16.8, 3.2], [-19.8, 0.6], 0.85, 0.6);
-        osso([-16.6, 2.6], [-16.4, 0.4], 0.45);
+    offset(r=-0.5) offset(r=0.5) union() {
+        translate([-12.0, 51.6]) circle(3.15);                                   // cabeça
+        translate([-14.7, 53.2]) circle(1.75);                                   // carrapito
+        osso([-12.5, 54.4], [-14.2, 54.4], 0.9);                                 // risca do cabelo ao carrapito
+        osso([-9.2, 50.4], [-8.7, 50.9], 0.5);                                   // nariz (perfil)
+        membro([[-11.6, 48.6, 1.15], [-11.7, 46.6, 1.2], [-11.9, 45.4, 1.35]]);  // pescoço
+        polygon(suave(TRONCO));
+        polygon(suave(SAIA));
+        // braço erguido, com o cotovelo um pouco dobrado; a mão chega ao gancho em (0, 62)
+        membro([[-9.6, 44.0, 1.5], [-7.4, 48.6, 1.3], [-5.4, 53.0, 1.1], [-2.6, 57.8, 0.95], [-0.6, 60.6, 0.9], [0, 62, 1.0]]);
+        // braço de baixo, a segurar a ponta da saia entre os dedos
+        membro([[-14.4, 43.0, 1.4], [-17.8, 40.6, 1.15], [-20.6, 38.2, 1.0], [-24.4, 35.4, 0.9], [-27.4, 33.8, 0.85]]);
+        osso([-27.4, 33.8], [-29.2, 34.6], 0.75, 0.6);                           // dedos
+        // perna da frente (direita), com joelho e barriga da perna marcados
+        membro([[-9.6, 26.4, 1.9], [-9.0, 19.0, 1.5], [-8.8, 13.6, 1.15], [-9.2, 9.6, 1.35], [-9.0, 5.0, 0.95], [-8.8, 3.0, 0.8]]);
+        // perna de trás, cruzada
+        membro([[-13.4, 26.4, 1.9], [-14.0, 19.2, 1.5], [-14.4, 13.8, 1.15], [-14.6, 9.8, 1.35], [-15.4, 5.0, 0.95], [-15.8, 3.0, 0.8]]);
+        // pés com salto: peito do pé em arco até ao bico, e o salto fino
+        membro([[-8.8, 3.0, 0.8], [-7.6, 1.6, 0.7], [-5.6, 0.6, 0.55]]);
+        osso([-9.2, 2.4], [-9.6, 0.4], 0.5, 0.42);
+        membro([[-15.8, 3.0, 0.8], [-17.2, 1.6, 0.7], [-19.2, 0.6, 0.55]]);
+        osso([-15.4, 2.4], [-15.1, 0.4], 0.5, 0.42);
     }
 }
 
@@ -112,8 +121,9 @@ module gancho2d() {
     osso(b, b + [PONTA*sin(30), -PONTA*cos(30)], W/2);                 // ponta aberta para dentro do copo
 }
 
-// o palco fica todo do lado de fora do vidro (x < 0); centrado na bailarina se couber
-function _xc() = min(-13*_k() - _afast(), -W/2 - 0.3 - _afast() - _larg()/2);
+// o palco fica todo do lado de fora do vidro e vai até à barra de reforço (x = -afastamento),
+// que lhe fica agarrada a todo o comprimento; centrado na bailarina se couber
+function _xc() = min(-13*_k() - _afast(), W/2 - _afast() - _larg()/2);
 function _yc() = -_hp()/2 + 0.6;
 
 module palco2d() {
@@ -126,6 +136,9 @@ module corpo2d() {
         // pulso: liga a mão da figura (afastada) ao gancho
         hull() { translate([-_afast(), NOMINAL*_k()]) circle(W/2); translate([0, NOMINAL*_k()]) circle(W/2); }
         translate([-_afast() - 1.2, NOMINAL*_k() - 1.0]) circle(1.3);     // polegar
+        // reforço: a perna de fora do gancho desce até ao palco (como uma barra de ballet);
+        // fecha a moldura palco → barra → gancho e alivia o braço e os tornozelos
+        osso([-_afast(), NOMINAL*_k()], [-_afast(), _yc()], W/2);
         gancho2d();
         palco2d();
     }
