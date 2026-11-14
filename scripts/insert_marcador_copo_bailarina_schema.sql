@@ -1,7 +1,7 @@
 -- Marcadores de copo — bailarina: generation_schema (2026-11-14).
--- A linha (com o template templates/marcador_copo_bailarina.scad, md5 63359c4d5a2b86e1968b38dead5fd323)
+-- A linha (com o template templates/marcador_copo_bailarina.scad, md5 4cbd8e5809324b34f9ed2e10fe8832ff)
 -- foi criada em rascunho na família Decoração, com as mesmas flags dos outros marcadores
--- (acesso gratuito, 1 crédito, CC-BY-NC). Silhueta desenhada de raiz (não é cópia de nenhuma imagem).
+-- (acesso gratuito, 1 crédito, CC-BY-NC). Silhueta: desenho do Pedro (pp3d), contornado da imagem dele (brinco com a argola retirada).
 -- Para publicar: miniatura (Admin → Miniaturas) e estado = 'ativo'.
 with pal as (
   select jsonb_agg(jsonb_build_object('hex', h, 'nome', n) order by o) p
