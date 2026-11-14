@@ -70,40 +70,39 @@ function suave(pts, n=8) = let(L = len(pts))
     [for (i = [0:L-1]) for (j = [0:n-1])
         _cr(pts[(i-1+L)%L], pts[i], pts[(i+1)%L], pts[(i+2)%L], j/n)];
 
-TRONCO = [   // costas à esquerda, peito à direita (ligeiramente de perfil, peito para o copo)
-    [-11.4, 46.0], [-9.6, 44.6], [-8.9, 42.4], [-8.7, 39.8], [-9.6, 37.0], [-10.1, 35.0],
-    [-10.6, 33.6], [-13.2, 33.6], [-13.4, 35.0], [-14.2, 37.6], [-14.9, 40.6], [-14.7, 43.4],
-    [-12.8, 45.0], [-12.4, 46.0]];
+TRONCO = [   // de perfil a três quartos, peito para o copo, cintura fina
+    [-10.4, 47.7], [-9.0, 46.5], [-8.5, 44.4], [-8.9, 42.0], [-9.8, 39.4], [-9.9, 37.6],
+    [-9.4, 35.8], [-13.8, 35.8], [-13.5, 37.6], [-13.4, 39.4], [-13.9, 42.2], [-14.0, 44.8],
+    [-13.4, 46.5], [-12.2, 47.7]];
 
-SAIA = [     // saia rodada, a ponta esquerda levantada pela mão; bainha com folhos
-    [-10.4, 35.0], [-8.6, 31.6], [-6.4, 28.2], [-5.0, 25.4], [-6.8, 25.0], [-8.2, 24.0],
-    [-10.2, 24.8], [-12.4, 23.6], [-14.6, 24.6], [-16.8, 23.8], [-18.8, 25.2], [-21.0, 25.0],
-    [-23.0, 27.0], [-25.4, 27.6], [-27.6, 30.4], [-28.8, 33.4], [-26.4, 33.2], [-23.6, 32.0],
-    [-20.4, 33.0], [-17.2, 33.6], [-13.8, 35.2]];
+TUTU = [     // tutu em prato: disco largo e fino, com camadas recortadas por baixo; a ponta
+             // do lado do copo chega à barra de reforço (segundo apoio a meio da peça)
+    [-12.0, 38.0], [-8.0, 37.7], [-4.6, 37.3], [-1.4, 37.4], [-0.4, 36.6], [-1.8, 35.6],
+    [-4.6, 35.1], [-6.4, 34.3], [-8.0, 34.7], [-9.8, 33.6], [-11.8, 34.4], [-13.8, 33.5],
+    [-15.8, 34.5], [-17.8, 34.0], [-19.6, 35.1], [-21.6, 35.4], [-23.4, 36.4], [-24.0, 37.4],
+    [-22.4, 37.7], [-19.2, 37.6], [-15.8, 37.9]];
 
 module figura2d() {
     offset(r=-0.5) offset(r=0.5) union() {
-        translate([-12.0, 51.6]) circle(3.15);                                   // cabeça
-        translate([-14.7, 53.2]) circle(1.75);                                   // carrapito
-        osso([-12.5, 54.4], [-14.2, 54.4], 0.9);                                 // risca do cabelo ao carrapito
-        osso([-9.2, 50.4], [-8.7, 50.9], 0.5);                                   // nariz (perfil)
-        membro([[-11.6, 48.6, 1.15], [-11.7, 46.6, 1.2], [-11.9, 45.4, 1.35]]);  // pescoço
+        // cabeça inclinada para a mão, com o rosto de perfil e o carrapito
+        translate([-11.1, 53.5]) circle(2.85);
+        hull() { translate([-9.0, 54.6]) circle(0.9); translate([-8.3, 54.9]) circle(0.45); }   // nariz
+        translate([-9.4, 52.4]) circle(0.95);                                                     // queixo
+        translate([-13.3, 55.4]) circle(1.6);                                                     // carrapito
+        membro([[-10.8, 51.0, 1.0], [-11.0, 49.2, 1.05], [-11.3, 47.6, 1.25]]);                 // pescoço comprido
         polygon(suave(TRONCO));
-        polygon(suave(SAIA));
-        // braço erguido, com o cotovelo um pouco dobrado; a mão chega ao gancho em (0, 62)
-        membro([[-9.6, 44.0, 1.5], [-7.4, 48.6, 1.3], [-5.4, 53.0, 1.1], [-2.6, 57.8, 0.95], [-0.6, 60.6, 0.9], [0, 62, 1.0]]);
-        // braço de baixo, a segurar a ponta da saia entre os dedos
-        membro([[-14.4, 43.0, 1.4], [-17.8, 40.6, 1.15], [-20.6, 38.2, 1.0], [-24.4, 35.4, 0.9], [-27.4, 33.8, 0.85]]);
-        osso([-27.4, 33.8], [-29.2, 34.6], 0.75, 0.6);                           // dedos
-        // perna da frente (direita), com joelho e barriga da perna marcados
-        membro([[-9.6, 26.4, 1.9], [-9.0, 19.0, 1.5], [-8.8, 13.6, 1.15], [-9.2, 9.6, 1.35], [-9.0, 5.0, 0.95], [-8.8, 3.0, 0.8]]);
-        // perna de trás, cruzada
-        membro([[-13.4, 26.4, 1.9], [-14.0, 19.2, 1.5], [-14.4, 13.8, 1.15], [-14.6, 9.8, 1.35], [-15.4, 5.0, 0.95], [-15.8, 3.0, 0.8]]);
-        // pés com salto: peito do pé em arco até ao bico, e o salto fino
-        membro([[-8.8, 3.0, 0.8], [-7.6, 1.6, 0.7], [-5.6, 0.6, 0.55]]);
-        osso([-9.2, 2.4], [-9.6, 0.4], 0.5, 0.42);
-        membro([[-15.8, 3.0, 0.8], [-17.2, 1.6, 0.7], [-19.2, 0.6, 0.55]]);
-        osso([-15.4, 2.4], [-15.1, 0.4], 0.5, 0.42);
+        polygon(suave(TUTU));
+        // braço erguido em arco suave; a mão chega ao gancho em (0, 62)
+        membro([[-9.6, 46.0, 1.3], [-8.0, 49.8, 1.15], [-6.0, 53.4, 1.0], [-3.6, 57.0, 0.9], [-1.4, 60.2, 0.85], [0, 62, 1.0]]);
+        // braço aberto ao lado (à la seconde), a descer e a mão a subir de leve
+        membro([[-13.6, 45.6, 1.25], [-16.6, 44.6, 1.1], [-19.6, 43.8, 1.0], [-22.6, 43.8, 0.88], [-24.8, 44.6, 0.75]]);
+        membro([[-24.8, 44.6, 0.75], [-26.2, 45.6, 0.62], [-27.2, 46.6, 0.55]]);                // mão e dedos
+        // perna de apoio, em pontas: coxa, joelho, barriga da perna, tornozelo, peito do pé em arco
+        membro([[-10.6, 35.0, 2.0], [-10.4, 27.0, 1.7], [-10.2, 20.0, 1.2], [-10.3, 14.0, 1.45],
+                [-10.1, 8.5, 1.1], [-10.0, 4.6, 0.82], [-9.4, 2.6, 0.8], [-9.6, 0.75, 0.75]]);
+        // perna em passé: coxa para fora, joelho dobrado, ponta do pé encostada ao joelho da outra
+        membro([[-13.2, 34.8, 1.95], [-16.2, 30.0, 1.6], [-19.6, 25.4, 1.25], [-17.6, 23.2, 1.35],
+                [-14.4, 21.6, 1.0], [-12.4, 20.8, 0.85], [-10.6, 20.4, 0.75]]);
     }
 }
 
