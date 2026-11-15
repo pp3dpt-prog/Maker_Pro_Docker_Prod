@@ -2,7 +2,7 @@
 // Silhueta de uma bailarina (desenho do Pedro, pp3d) com o braço erguido: a mão curva-se num gancho
 // em "U" que passa por cima da borda do copo, com uma perna curta por dentro a apertar o vidro,
 // como se ela segurasse o copo. A figura fica espetada para fora do copo, como uma barbatana.
-// A perna de fora do gancho desce até ao palco, como uma barra de ballet, e reforça a peça.
+// A perna de fora do clip é uma barra que desce até ao palco e reforça a peça.
 // Aos pés, um palco com o nome em relevo (noutra cor) ou liso com um rebaixo para colar uma
 // etiqueta (fita de etiquetadora, para as emergências). Até 12 de uma vez.
 //
@@ -101,7 +101,11 @@ module figura2d() { polygon(BAILARINA, BAILARINA_CAMINHOS); }
 // o desenho escala com a altura; o gancho, o palco e o nome não
 module gancho2d() {
     rc = _rc(); top = NOMINAL*_k();
-    osso([0, top - 6], [0, top], W/2);                                  // mão (vertical, encostada ao vidro)
+    // perna de fora do clip = barra de reforço: desce encostada ao vidro até à altura da perna de
+    // dentro (para o clip apertar) e daí segue até ao palco; com afastamento dobra para fora
+    // abaixo do clip, para não bater na barriga das taças
+    osso([0, top], [0, top - PERNA], W/2);
+    osso([0, top - PERNA], [-_afast(), _yc()], W/2);
     translate([rc, top]) intersection() {
         difference() { circle(rc + W/2); circle(rc - W/2); }
         translate([-rc - W, 0]) square([2*rc + 2*W, rc + W]);
@@ -125,9 +129,6 @@ module corpo2d() {
         translate([-_afast(), 0]) scale(_k()) figura2d();
         // pulso: liga a mão da figura (afastada) ao gancho
         hull() { translate([-_afast(), NOMINAL*_k()]) circle(W/2); translate([0, NOMINAL*_k()]) circle(W/2); }
-        // reforço: a perna de fora do gancho desce até ao palco (como uma barra de ballet);
-        // fecha a moldura palco → barra → gancho e alivia o braço e os tornozelos
-        osso([-_afast(), NOMINAL*_k()], [-_afast(), _yc()], W/2);
         gancho2d();
         palco2d();
     }
