@@ -139,6 +139,7 @@ async function uploadToStorage(filePath, storagePath, mimeType) {
  * Partes com "so_quando" / "min_param" só correm quando se aplicam (lib/partes.js); "cor_auto_param"
  * dá a cor quando o cor_param está vazio (p.ex. a cor detetada na imagem, <zona>_c<i>_hex);
  * "agrupar_por_cor": true junta numa só peça do 3MF as partes com a mesma cor.
+ * "sem_ams_juntar_partes": true faz o STL sem AMS juntando as partes (sem o modo "tudo").
  */
 /**
  * Ficheiros separados (generation_schema.ficheiros ou multicor.ficheiros_extra): o template corre
@@ -190,7 +191,28 @@ export async function gerarMulticor({ design, params, base, nomeBase }) {
 
   if (semAms(cfg, params)) {
     const stlPath = `${base}.stl`;
-    await gerarSTL({ scadTemplate: design.scad_template, params: { ...params, modo: 'tudo' }, outFile: stlPath });
+    if (cfg.sem_ams_juntar_partes) {
+      // "sem_ams_juntar_partes": true — em vez do modo "tudo" (o OpenSCAD do servidor demora minutos
+      // a unir as partes com o CGAL), gera cada parte como no 3MF e junta os triângulos num só STL.
+      // O slicer trata as partes encostadas como uma peça.
+      const todos = [];
+      for (const [i, p] of partesCfg.entries()) {
+        const sp = `${base}_j${i}.stl`;
+        try {
+          await gerarSTL({ scadTemplate: design.scad_template, params: { ...params, modo: p.modo }, outFile: sp });
+        } catch (e) {
+          if (i === 0) throw e;
+          continue;
+        }
+        const tri = lerStl(await fsp.readFile(sp));
+        for (let k = 0; k < tri.length; k++) todos.push(tri[k]);
+        fsp.unlink(sp).catch(() => {});
+        fsp.unlink(sp.replace('.stl', '.scad')).catch(() => {});
+      }
+      await fsp.writeFile(stlPath, stlBinario(todos, nomeBase));
+    } else {
+      await gerarSTL({ scadTemplate: design.scad_template, params: { ...params, modo: 'tudo' }, outFile: stlPath });
+    }
     // altura da troca de cor: fixa (troca_cor_mm) ou lida de um parâmetro (troca_cor_param, p.ex. a espessura da base)
     const z = Number(cfg.troca_cor_param ? params[cfg.troca_cor_param] : cfg.troca_cor_mm);
     const cores = partesCfg.map(p => `  • ${p.nome}: ${corParte(p, params).toUpperCase()}`);
